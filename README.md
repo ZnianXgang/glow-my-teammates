@@ -2,6 +2,10 @@
 
 Team members glow for each other — visible only to teammates.
 
+## Background
+
+I was playing a custom map that needed teammate glow for better gameplay, but couldn't find any existing mod that does this. So I built it with AI.
+
 ## Features
 
 - Server-side only, no client installation needed
