@@ -1,0 +1,38 @@
+package com.glow.teammates;
+
+import com.glow.teammates.command.GlowCommand;
+import com.glow.teammates.config.GlowConfigManager;
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.minecraft.resources.Identifier;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class GlowMyTeammates implements ModInitializer {
+	public static final String MOD_ID = "glow-my-teammates";
+
+	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+
+	@Override
+	public void onInitialize() {
+		LOGGER.info("Glow My Teammates initializing...");
+
+		// Load config when the server starts
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			GlowConfigManager.getInstance().loadFromWorld(server);
+		});
+
+		// Register commands
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			GlowCommand.register(dispatcher);
+		});
+
+		LOGGER.info("Glow My Teammates initialized");
+	}
+
+	public static Identifier id(String path) {
+		return Identifier.fromNamespaceAndPath(MOD_ID, path);
+	}
+}
