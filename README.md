@@ -16,14 +16,16 @@ I was playing a custom map that needed teammate glow for better gameplay, but co
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `/teamglow on` | Enable team glow globally |
-| `/teamglow off` | Disable team glow globally |
-| `/teamglow status` | Show current state and enabled teams |
-| `/teamglow team add <team>` | Enable glow for a team |
-| `/teamglow team remove <team>` | Disable glow for a team |
-| `/teamglow team list` | List all teams with glow enabled |
+`/teamglow` requires OP level 2 for management commands. Status/list commands are available to all players.
+
+| Command | Permission | Description |
+|---|---|---|
+| `/teamglow on` | OP 2 | Enable team glow globally |
+| `/teamglow off` | OP 2 | Disable team glow globally |
+| `/teamglow status` | Everyone | Show current state and enabled teams |
+| `/teamglow team add <team>` | OP 2 | Enable glow for a team |
+| `/teamglow team remove <team>` | OP 2 | Disable glow for a team |
+| `/teamglow team list` | Everyone | List all teams with glow enabled |
 
 ## Usage
 
