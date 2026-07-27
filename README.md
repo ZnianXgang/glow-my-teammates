@@ -49,6 +49,8 @@ Located in the world save folder: `<world>/glow-my-teammates.json`
 
 ZnianXgang
 
+Built with [OpenCode](https://opencode.ai) using DeepSeek V4.
+
 ## License
 
 CC0-1.0
