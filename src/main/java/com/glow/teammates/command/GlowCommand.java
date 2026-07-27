@@ -16,12 +16,14 @@ public final class GlowCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var root = Commands.literal("teamglow");
 
-        // /glowteammates on
+        // /teamglow on
         root.then(Commands.literal("on")
+                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
                 .executes(ctx -> setEnabled(ctx.getSource(), true)));
 
-        // /glowteammates off
+        // /teamglow off
         root.then(Commands.literal("off")
+                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
                 .executes(ctx -> setEnabled(ctx.getSource(), false)));
 
         // /glowteammates status
@@ -31,8 +33,9 @@ public final class GlowCommand {
         // /glowteammates team ...
         var teamNode = Commands.literal("team");
 
-        // /glowteammates team add <team>
+        // /teamglow team add <team>
         teamNode.then(Commands.literal("add")
+                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest all existing teams from scoreboard
@@ -52,8 +55,9 @@ public final class GlowCommand {
                             return addTeam(ctx.getSource(), team);
                         })));
 
-        // /glowteammates team remove <team>
+        // /teamglow team remove <team>
         teamNode.then(Commands.literal("remove")
+                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest only enabled teams
