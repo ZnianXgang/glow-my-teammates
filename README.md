@@ -13,6 +13,7 @@ I was playing a custom map that needed teammate glow for better gameplay, but co
 - `/teamglow` command controls which teams have glow enabled
 - Config stored in world save folder (`glow-my-teammates.json`)
 - Does not interfere with vanilla glowing (spectral arrows, potions, etc.)
+- Supports Minecraft 26.1 and 26.2
 
 ## Commands
 
@@ -46,10 +47,24 @@ Located in the world save folder: `<world>/glow-my-teammates.json`
 
 ## Dependencies
 
-- Minecraft 26.2
-- Fabric Loader >= 0.19.3
-- Fabric API
-- Java >= 25
+| | Minecraft 26.1 | Minecraft 26.2 |
+|---|---|---|
+| Fabric Loader | >= 0.18.4 | >= 0.19.3 |
+| Fabric API | Any | Any |
+| Java | >= 25 | >= 25 |
+
+## Building
+
+This mod uses [Stonecutter](https://stonecutter.kikugie.dev/) to target multiple Minecraft versions from a single codebase.
+
+```bash
+# Build all versions
+./gradlew build
+```
+
+Output:
+- `versions/26.1/build/libs/glow-my-teammates-1.0.1+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.0.1+26.2.jar`
 
 ## Author
 
