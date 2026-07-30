@@ -160,9 +160,21 @@ public abstract class ServerEntityMixin {
         ClientboundSetEntityDataPacket noGlowPacket = modifyGlowFlag(
                 dataPacket, false);
 
+        //? if 26.2 {
         sync.sendToTrackingPlayersFiltered(glowPacket, isTeammate);
         sync.sendToTrackingPlayersFiltered(
                 noGlowPacket, v -> !isTeammate.test(v));
+//?} else {
+        /*// 26.1: send no-glow to all, then manually override teammates
+        sync.sendToTrackingPlayersAndSelf(noGlowPacket);
+        for (var player : entityPlayer.level().players()) {
+            if (player instanceof ServerPlayer sp
+                    && sp != entityPlayer
+                    && isTeammate.test(sp)) {
+                sp.connection.send(glowPacket);
+            }
+        }
+*///?}
 
         if (entityPlayer instanceof ServerPlayer serverPlayer) {
             serverPlayer.connection.send(noGlowPacket);
