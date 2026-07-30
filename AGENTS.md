@@ -26,26 +26,46 @@ Server-side Fabric mod that makes teammates glow for each other. Uses vanilla `/
     ├── config/GlowConfigManager.java  World-save JSON config
     ├── command/GlowCommand.java     /teamglow command
     └── mixin/
-        ├── EntityAccessor.java      @Accessor for Entity.DATA_SHARED_FLAGS_ID
-        └── ServerEntityMixin.java   Core: per-client glow via Mixin (version-gated)
+        ├── EntityAccessor.java        @Accessor for Entity.DATA_SHARED_FLAGS_ID
+        ├── ScoreboardMixin.java       Detects team membership changes
+        └── ServerEntityMixin.java     Core: event-driven per-client glow
 ```
 
 ## How It Works
 
-Two Mixin injection points on `ServerEntity`:
+Three Mixin classes working together:
 
-1. **`@ModifyVariable`** on `SynchedEntityData.packDirty()` return value:
-   - `packDirty()` returns `null` when no data changed → inject current shared flags
-   - Ensures packet always created for Player entities
-   - Transition ON→OFF sends one cleanup packet (`wasSyncing` flag)
+### 1. `ServerEntityMixin` — Core glow logic
 
-2. **`@Redirect`** on `Synchronizer.sendToTrackingPlayersAndSelf()`:
-   - **26.2**: Uses `sendToTrackingPlayersFiltered(Packet, Predicate)` for engine-level per-client filtering
-   - **26.1**: Uses `sendToTrackingPlayersAndSelf()` + manual player iteration (fallback)
-   - Teammates: packet with glow bit set (0x40)
-   - Non-teammates: packet with glow bit cleared
-   - Checks `Scoreboard.getPlayersTeam()` for team membership
-   - Skips when vanilla `GLOWING` effect active (spectral arrows, potions)
+**`@ModifyVariable` on `packDirty()`** — event-driven instead of per-tick:
+- `packDirty()` returns `null` when no data changed → vanilla skips the packet
+- Only forces a packet when glow state actually changes:
+  - Entity joins/leaves a glowing team (`cachedTeamName` mismatch)
+  - Config changes (`cachedConfigVersion` mismatch, from `/teamglow` commands)
+  - Viewer-side team changes (`cachedSyncEpoch` mismatch, from Scoreboard hooks)
+- Returns `null` otherwise → zero overhead in steady state
+
+**`@Inject` on `addPairing(ServerPlayer)`** (TAIL) — initial viewer sync:
+- Fires exactly once when a player enters tracking range
+- Immediately sends correct glow state (glow for teammates, no glow for others)
+- Prevents cache so `@ModifyVariable` won't redundantly force later
+
+**`@Redirect` on `sendToTrackingPlayersAndSelf()`** — per-client glow customization:
+- Intercepts entity data packets from `sendDirtyEntityData()`
+- Creates two modified copies: one with glow bit (0x40) set, one cleared
+- Uses `sendToTrackingPlayersFiltered(Packet, Predicate)` for engine-level per-client routing
+- Skips when vanilla `GLOWING` effect active (spectral arrows, potions)
+- Both 26.1 and 26.2 use the same `sendToTrackingPlayersFiltered` API
+
+### 2. `ScoreboardMixin` — Viewer-side team change detection
+
+- `@Inject` on `Scoreboard.addPlayerToTeam(String, PlayerTeam)`
+- `@Inject` on `Scoreboard.removePlayerFromTeam(String)` (single and two-parameter overloads)
+- Calls `GlowConfigManager.bumpSyncEpoch()` → all glowing entities force a resync next tick
+
+### 3. `EntityAccessor` — Shared flags accessor
+
+- `@Accessor` for `Entity.DATA_SHARED_FLAGS_ID` — static accessor for the shared flags `EntityDataAccessor`
 
 ## Stonecutter — Version Management
 
@@ -80,7 +100,6 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 
 | API | 26.1 | 26.2 |
 |---|---|---|
-| Per-client packet send | `sendToTrackingPlayersAndSelf` + manual loop | `sendToTrackingPlayersFiltered(Packet, Predicate)` |
 | Permission check | `Commands.LEVEL_GAMEMASTERS.check(permissions())` | Same |
 | Scoreboard access | `entity.level().getScoreboard()` | Same |
 | Identifier factory | `Identifier.fromNamespaceAndPath()` | Same |
@@ -92,8 +111,8 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 ```
 
 Output JARs:
-- `versions/26.2/build/libs/glow-my-teammates-1.0.1+26.2.jar`
-- `versions/26.1/build/libs/glow-my-teammates-1.0.1+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.0.2+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.0.2+26.1.jar`
 
 ## Config
 

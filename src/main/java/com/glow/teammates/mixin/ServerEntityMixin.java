@@ -20,8 +20,10 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,21 +36,43 @@ public abstract class ServerEntityMixin {
     @Final
     private Entity entity;
 
-    /** Tracks whether syncing was active last tick — used to detect ON→OFF transition. */
+    /**
+     * Cached team name at last glow sync — used to detect team membership changes
+     * without polling the scoreboard every tick. {@code null} means not yet synced
+     * (forces a packet on first encounter).
+     */
     @Unique
-    private boolean wasSyncing;
-
-    // ========== Force packet when nothing else is dirty ==========
+    private String cachedTeamName;
 
     /**
-     * {@code packDirty()} returns null when no entity data has changed.
-     * For Player entities, inject the current shared flags when needed:
-     * <ul>
-     *   <li>Mod ON and no vanilla glow: always inject, so {@code @Redirect}
-     *       can customize the glow flag per-client.</li>
-     *   <li>Mod just turned OFF: inject once (cleanup packet to clear stale
-     *       team glow from clients), then stop.</li>
-     * </ul>
+     * Cached {@link GlowConfigManager#getVersion()} at last glow sync.
+     * Detects config changes (e.g. {@code /teamglow team add/remove}).
+     */
+    @Unique
+    private long cachedConfigVersion;
+
+    /**
+     * Cached {@link GlowConfigManager#getSyncEpoch()} at last glow sync.
+     * Detects viewer-side team membership changes — when a player joins
+     * or leaves a scoreboard team, all glowing entities force a resync
+     * so that affected viewers see the correct glow state immediately.
+     */
+    @Unique
+    private long cachedSyncEpoch;
+
+    // ========== Smart force: only when team membership or config changes ==========
+
+    /**
+     * {@link SynchedEntityData#packDirty()} returns {@code null} when no entity
+     * data has changed. Instead of <em>always</em> forcing a packet for Player
+     * entities (which floods the network every tick), this method only forces a
+     * packet when the entity's glowing-team membership or the config version has
+     * changed since the last sync.
+     *
+     * <p>Initial tracking (first sighting) is handled by {@link #onAddPairing},
+     * which fires exactly once when a viewer starts tracking this entity.
+     * This method only catches mid-session state changes: team join/leave,
+     * {@code /teamglow team add/remove}, or glow toggling on/off.
      */
     @ModifyVariable(
             method = "sendDirtyEntityData",
@@ -59,36 +83,44 @@ public abstract class ServerEntityMixin {
             ),
             ordinal = 0
     )
-    private List<SynchedEntityData.DataValue<?>> ensurePacketForPlayers(
+    private List<SynchedEntityData.DataValue<?>> smartForcePacket(
             List<SynchedEntityData.DataValue<?>> original) {
 
         if (original != null) {
-            // Has dirty data — let normal flow handle it.
-            this.wasSyncing = GlowConfigManager.getInstance().isEnabled();
-            return original;
+            return original; // Natural dirty data → @Redirect handles it.
         }
-        if (!(entity instanceof Player)) return null;
-
-        boolean enabled = GlowConfigManager.getInstance().isEnabled();
-
-        if (!enabled) {
-            if (this.wasSyncing) {
-                // ON → OFF transition: send one cleanup packet to clear team glow.
-                this.wasSyncing = false;
-                return buildFlagsPacket();
-            }
+        if (!(entity instanceof Player entityPlayer)) {
             return null;
         }
 
-        this.wasSyncing = true;
+        GlowConfigManager config = GlowConfigManager.getInstance();
 
-        // Don't interfere with vanilla glowing.
-        if (entity instanceof LivingEntity living
-                && living.hasEffect(MobEffects.GLOWING)) {
-            return null;
+        // Determine current glow state for this entity.
+        PlayerTeam glowingTeam = config.isEnabled()
+                ? getGlowingTeam(entityPlayer) : null;
+        String currentTeamName = glowingTeam != null
+                ? glowingTeam.getName() : null;
+        long currentConfigVersion = config.getVersion();
+        long currentSyncEpoch = config.getSyncEpoch();
+
+        // Detect transitions in BOTH directions:
+        // null → "red" = player joined a glowing team (force glow packet)
+        // "red" → null = player left or mod disabled (force cleanup packet)
+        boolean teamChanged = (currentTeamName == null)
+                ? (cachedTeamName != null)
+                : !currentTeamName.equals(cachedTeamName);
+        boolean configChanged = currentConfigVersion != cachedConfigVersion;
+        boolean epochChanged = currentSyncEpoch != cachedSyncEpoch;
+
+        if (teamChanged || configChanged || epochChanged) {
+            cachedTeamName = currentTeamName;
+            cachedConfigVersion = currentConfigVersion;
+            cachedSyncEpoch = currentSyncEpoch;
+            return buildFlagsPacket();
         }
 
-        return buildFlagsPacket();
+        // No relevant state change — let vanilla skip the packet.
+        return null;
     }
 
     private List<SynchedEntityData.DataValue<?>> buildFlagsPacket() {
@@ -96,6 +128,79 @@ public abstract class ServerEntityMixin {
         byte flags = entity.getEntityData().get(accessor);
         return List.of(new SynchedEntityData.DataValue<>(
                 0, EntityDataSerializers.BYTE, flags));
+    }
+
+    // ========== Initial sync: first sighting by a new tracker ==========
+
+    /**
+     * When a player enters this entity's tracking range for the first time
+     * (or after reconnecting / dimension change), immediately send the
+     * correct glow state — glow for teammates, no glow for others.
+     *
+     * <p>This fires exactly once per viewer, right after the vanilla spawn
+     * packet. For teammates: sends 1 extra {@link ClientboundSetEntityDataPacket}
+     * with bit {@code 0x40} set. For non-teammates: no action needed.
+     */
+    @Inject(method = "addPairing", at = @At("TAIL"))
+    private void onAddPairing(ServerPlayer viewer, CallbackInfo ci) {
+        if (!(entity instanceof Player entityPlayer)) {
+            return;
+        }
+        if (!GlowConfigManager.getInstance().isEnabled()) {
+            return;
+        }
+
+        PlayerTeam glowingTeam = getGlowingTeam(entityPlayer);
+        if (glowingTeam == null) {
+            return;
+        }
+
+        Scoreboard scoreboard = viewer.level().getScoreboard();
+        PlayerTeam viewerTeam = scoreboard.getPlayersTeam(
+                viewer.getScoreboardName());
+        boolean isTeammate = glowingTeam.equals(viewerTeam);
+
+        if (!isTeammate) {
+            // Prevent smartForcePacket from redundantly forcing later.
+            cachedTeamName = glowingTeam.getName();
+            cachedConfigVersion = GlowConfigManager.getInstance().getVersion();
+            cachedSyncEpoch = GlowConfigManager.getInstance().getSyncEpoch();
+            return;
+        }
+
+        byte flags = entity.getEntityData().get(
+                EntityAccessor.getSharedFlagsId());
+        byte glowFlags = (byte) (flags | 0x40);
+
+        List<SynchedEntityData.DataValue<?>> items = List.of(
+                new SynchedEntityData.DataValue<>(
+                        0, EntityDataSerializers.BYTE, glowFlags));
+        viewer.connection.send(
+                new ClientboundSetEntityDataPacket(entity.getId(), items));
+
+        cachedTeamName = glowingTeam.getName();
+        cachedConfigVersion = GlowConfigManager.getInstance().getVersion();
+        cachedSyncEpoch = GlowConfigManager.getInstance().getSyncEpoch();
+    }
+
+    // ========== Helpers ==========
+
+    /**
+     * Returns the {@link PlayerTeam} the given player belongs to, if that team
+     * has glow enabled. Returns {@code null} otherwise.
+     */
+    @Unique
+    private static PlayerTeam getGlowingTeam(Player player) {
+        Scoreboard scoreboard = player.level().getScoreboard();
+        PlayerTeam team = scoreboard.getPlayersTeam(
+                player.getScoreboardName());
+        if (team == null) {
+            return null;
+        }
+        if (!GlowConfigManager.getInstance().isTeamEnabled(team.getName())) {
+            return null;
+        }
+        return team;
     }
 
     // ========== Per-client glow customization ==========
@@ -160,21 +265,9 @@ public abstract class ServerEntityMixin {
         ClientboundSetEntityDataPacket noGlowPacket = modifyGlowFlag(
                 dataPacket, false);
 
-        //? if 26.2 {
         sync.sendToTrackingPlayersFiltered(glowPacket, isTeammate);
         sync.sendToTrackingPlayersFiltered(
                 noGlowPacket, v -> !isTeammate.test(v));
-//?} else {
-        /*// 26.1: send no-glow to all, then manually override teammates
-        sync.sendToTrackingPlayersAndSelf(noGlowPacket);
-        for (var player : entityPlayer.level().players()) {
-            if (player instanceof ServerPlayer sp
-                    && sp != entityPlayer
-                    && isTeammate.test(sp)) {
-                sp.connection.send(glowPacket);
-            }
-        }
-*///?}
 
         if (entityPlayer instanceof ServerPlayer serverPlayer) {
             serverPlayer.connection.send(noGlowPacket);

@@ -24,6 +24,19 @@ public class GlowConfigManager {
     private final Set<String> enabledTeams = new LinkedHashSet<>();
     private Path configPath;
 
+    /**
+     * Monotonically increasing counter bumped on every state change.
+     * Used by the mixin to detect when a full resync is needed.
+     */
+    private long version;
+
+    /**
+     * Bumped whenever a player joins or leaves ANY scoreboard team.
+     * Allows {@link com.glow.teammates.mixin.ServerEntityMixin} to detect
+     * viewer-side team changes and force a glow resync for affected viewers.
+     */
+    private long syncEpoch;
+
     public static GlowConfigManager getInstance() {
         if (INSTANCE == null) {
             INSTANCE = new GlowConfigManager();
@@ -50,6 +63,7 @@ public class GlowConfigManager {
                     if (data.teams != null) {
                         this.enabledTeams.addAll(data.teams);
                     }
+                    this.version++;
                 }
                 GlowMyTeammates.LOGGER.info(
                         "Loaded config: enabled={}, teams={}", enabled, enabledTeams);
@@ -92,6 +106,23 @@ public class GlowConfigManager {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+        this.version++;
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    /**
+     * Call when a player joins or leaves any team, so the mixin can force
+     * a glow-state resync for all viewers of glowing entities.
+     */
+    public void bumpSyncEpoch() {
+        this.syncEpoch++;
+    }
+
+    public long getSyncEpoch() {
+        return syncEpoch;
     }
 
     public boolean isTeamEnabled(String teamName) {
@@ -100,10 +131,13 @@ public class GlowConfigManager {
 
     public void addTeam(String teamName) {
         enabledTeams.add(teamName);
+        this.version++;
     }
 
     public boolean removeTeam(String teamName) {
-        return enabledTeams.remove(teamName);
+        boolean removed = enabledTeams.remove(teamName);
+        if (removed) this.version++;
+        return removed;
     }
 
     public Set<String> getEnabledTeams() {
