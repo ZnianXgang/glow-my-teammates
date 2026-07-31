@@ -95,13 +95,20 @@ public abstract class ServerEntityMixin {
 
         GlowConfigManager config = GlowConfigManager.getInstance();
 
+        long currentConfigVersion = config.getVersion();
+        long currentSyncEpoch = config.getSyncEpoch();
+
+        // If neither config nor team membership changed, entity team can't have changed
+        if (currentConfigVersion == cachedConfigVersion
+                && currentSyncEpoch == cachedSyncEpoch) {
+            return null;
+        }
+
         // Determine current glow state for this entity.
         PlayerTeam glowingTeam = config.isEnabled()
                 ? getGlowingTeam(entityPlayer) : null;
         String currentTeamName = glowingTeam != null
                 ? glowingTeam.getName() : null;
-        long currentConfigVersion = config.getVersion();
-        long currentSyncEpoch = config.getSyncEpoch();
 
         // Detect transitions in BOTH directions:
         // null → "red" = player joined a glowing team (force glow packet)
@@ -175,8 +182,10 @@ public abstract class ServerEntityMixin {
         List<SynchedEntityData.DataValue<?>> items = List.of(
                 new SynchedEntityData.DataValue<>(
                         0, EntityDataSerializers.BYTE, glowFlags));
-        viewer.connection.send(
-                new ClientboundSetEntityDataPacket(entity.getId(), items));
+        if (viewer.connection != null) {
+            viewer.connection.send(
+                    new ClientboundSetEntityDataPacket(entity.getId(), items));
+        }
 
         cachedTeamName = glowingTeam.getName();
         cachedConfigVersion = GlowConfigManager.getInstance().getVersion();
@@ -246,17 +255,18 @@ public abstract class ServerEntityMixin {
         }
 
         String entityName = entityPlayer.getScoreboardName();
+        Scoreboard scoreboard = entityPlayer.level().getScoreboard();
+        PlayerTeam entityTeamObj = scoreboard.getPlayersTeam(entityName);
+
+        // Entity not in a glowing team → no glow customization needed
+        if (entityTeamObj == null || !GlowConfigManager.getInstance().isTeamEnabled(entityTeamObj.getName())) {
+            sync.sendToTrackingPlayersAndSelf(packet);
+            return;
+        }
 
         Predicate<ServerPlayer> isTeammate = viewer -> {
-            Scoreboard scoreboard = viewer.level().getScoreboard();
-            PlayerTeam entityTeamObj = scoreboard.getPlayersTeam(entityName);
-            if (entityTeamObj == null) return false;
-            if (!GlowConfigManager.getInstance().isTeamEnabled(
-                    entityTeamObj.getName())) {
-                return false;
-            }
-            PlayerTeam viewerTeam = scoreboard.getPlayersTeam(
-                    viewer.getScoreboardName());
+            PlayerTeam viewerTeam = viewer.level().getScoreboard()
+                    .getPlayersTeam(viewer.getScoreboardName());
             return entityTeamObj.equals(viewerTeam);
         };
 
@@ -270,7 +280,9 @@ public abstract class ServerEntityMixin {
                 noGlowPacket, v -> !isTeammate.test(v));
 
         if (entityPlayer instanceof ServerPlayer serverPlayer) {
-            serverPlayer.connection.send(noGlowPacket);
+            if (serverPlayer.connection != null) {
+                serverPlayer.connection.send(noGlowPacket);
+            }
         }
     }
 
@@ -278,9 +290,15 @@ public abstract class ServerEntityMixin {
 
     /**
      * Create a copy of the packet with the glowing flag (bit 0x40) modified.
+     *
+     * <p>When the packet does not contain the shared-flags entry (i.e. the
+     * flags did not change since the last send), the glow variant must add
+     * the entry based on the entity's <em>current</em> flags — a bare
+     * {@code 0x40} would replace the whole byte on the client and wipe
+     * the other flag bits (FALL_FLYING, SPRINTING, INVISIBLE, ON_FIRE...).
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
-    private static ClientboundSetEntityDataPacket modifyGlowFlag(
+    private ClientboundSetEntityDataPacket modifyGlowFlag(
             ClientboundSetEntityDataPacket packet, boolean shouldGlow) {
 
         List<SynchedEntityData.DataValue<?>> items =
@@ -304,8 +322,10 @@ public abstract class ServerEntityMixin {
         }
 
         if (!foundFlag && shouldGlow) {
+            byte current = entity.getEntityData().get(
+                    EntityAccessor.getSharedFlagsId());
             items.add(new SynchedEntityData.DataValue<>(
-                    0, EntityDataSerializers.BYTE, (byte) 0x40));
+                    0, EntityDataSerializers.BYTE, (byte) (current | 0x40)));
         }
 
         return new ClientboundSetEntityDataPacket(packet.id(), items);

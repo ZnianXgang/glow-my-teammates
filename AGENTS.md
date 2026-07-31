@@ -43,18 +43,23 @@ Three Mixin classes working together:
   - Entity joins/leaves a glowing team (`cachedTeamName` mismatch)
   - Config changes (`cachedConfigVersion` mismatch, from `/teamglow` commands)
   - Viewer-side team changes (`cachedSyncEpoch` mismatch, from Scoreboard hooks)
+- **Optimization**: When both `version` and `syncEpoch` are unchanged, skips the scoreboard lookup entirely — returns `null` immediately
 - Returns `null` otherwise → zero overhead in steady state
 
 **`@Inject` on `addPairing(ServerPlayer)`** (TAIL) — initial viewer sync:
 - Fires exactly once when a player enters tracking range
 - Immediately sends correct glow state (glow for teammates, no glow for others)
 - Prevents cache so `@ModifyVariable` won't redundantly force later
+- **Defensive**: null-guards `viewer.connection` to prevent NPE on disconnect race
 
 **`@Redirect` on `sendToTrackingPlayersAndSelf()`** — per-client glow customization:
 - Intercepts entity data packets from `sendDirtyEntityData()`
 - Creates two modified copies: one with glow bit (0x40) set, one cleared
 - Uses `sendToTrackingPlayersFiltered(Packet, Predicate)` for engine-level per-client routing
+- **Optimization**: Entity-team lookup hoisted out of per-viewer predicate — computed once instead of per-viewer
 - Skips when vanilla `GLOWING` effect active (spectral arrows, potions)
+- Falls back to vanilla path when entity is not in a glowing team
+- **Defensive**: null-guards `serverPlayer.connection` on self-send
 - Both 26.1 and 26.2 use the same `sendToTrackingPlayersFiltered` API
 
 ### 2. `ScoreboardMixin` — Viewer-side team change detection
@@ -111,8 +116,8 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 ```
 
 Output JARs:
-- `versions/26.2/build/libs/glow-my-teammates-1.0.2+26.2.jar`
-- `versions/26.1/build/libs/glow-my-teammates-1.0.2+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.0.3+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.0.3+26.1.jar`
 
 ## Config
 

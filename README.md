@@ -63,8 +63,8 @@ This mod uses [Stonecutter](https://stonecutter.kikugie.dev/) to target multiple
 ```
 
 Output:
-- `versions/26.1/build/libs/glow-my-teammates-1.0.2+26.1.jar`
-- `versions/26.2/build/libs/glow-my-teammates-1.0.2+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.0.3+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.0.3+26.2.jar`
 
 ## Author
 

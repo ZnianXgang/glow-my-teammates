@@ -10,6 +10,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 public class GlowConfigManager {
@@ -61,7 +62,11 @@ public class GlowConfigManager {
                     this.enabled = data.enabled;
                     this.enabledTeams.clear();
                     if (data.teams != null) {
-                        this.enabledTeams.addAll(data.teams);
+                        for (String team : data.teams) {
+                            if (team != null) {
+                                this.enabledTeams.add(team);
+                            }
+                        }
                     }
                     this.version++;
                 }
@@ -90,10 +95,13 @@ public class GlowConfigManager {
         try {
             Files.createDirectories(configPath.getParent());
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
+            Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
             try (Writer writer = new OutputStreamWriter(
-                    Files.newOutputStream(configPath), StandardCharsets.UTF_8)) {
+                    Files.newOutputStream(tmpPath), StandardCharsets.UTF_8)) {
                 GSON.toJson(data, writer);
             }
+            Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
             GlowMyTeammates.LOGGER.info("Saved config to {}", configPath);
         } catch (IOException e) {
             GlowMyTeammates.LOGGER.error("Failed to save config", e);
