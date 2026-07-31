@@ -92,7 +92,7 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 ./gradlew setActiveVersion -Pversion=26.1
 
 # Reset source to VCS version (run before committing!)
-./gradlew resetActiveVersion
+./gradlew "Reset active project"
 ```
 
 ### Adding a New Version
@@ -145,5 +145,5 @@ OP level 2 required for on/off/add/remove.
 - **Do NOT toggle entity data directly** — corrupts state. Inject missing packets via `@ModifyVariable`.
 - The `Synchronizer` inner interface is importable as `ServerEntity.Synchronizer`.
 - **No Yarn mappings.** All class/method names are Mojang (official).
-- **Always commit from VCS version (26.2).** Run `resetActiveVersion` before committing to avoid Stonecutter preprocessor noise in Git history.
+- **Always commit from VCS version (26.2).** Run `"Reset active project"` before committing to avoid Stonecutter preprocessor noise in Git history.
 - **New version-gated code**: Use `//? if <version> { ... }` syntax. Avoid raw `/* */` comments for versioning.
