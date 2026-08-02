@@ -26,6 +26,9 @@ dependencies {
 	// Server-side translations (NucleoidMC) — embedded into the mod jar so
 	// users do not need to install it separately.
 	implementation include("xyz.nucleoid:server-translations-api:${property('server_translations_version')}")
+
+	// MixinExtras (compile-time only) — the runtime is bundled with fabric-loader.
+	compileOnly "io.github.llamalad7:mixinextras-fabric:0.5.4"
 }
 
 processResources {

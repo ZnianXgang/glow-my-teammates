@@ -10,7 +10,11 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
+import net.minecraft.server.waypoints.ServerWaypointManager;
 
 import java.util.Set;
 import java.util.function.Consumer;
@@ -273,12 +277,18 @@ public final class GlowCommand {
 
     private static int setConfigSwitch(CommandSourceStack source, String feature,
                                        boolean value, Consumer<Boolean> setter) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        boolean waypointsAffected = feature.equals("locator_bar_teammates_only")
+                && config.isLocatorBarTeammatesOnly() != value;
         setter.accept(value);
-        if (!GlowConfigManager.getInstance().save()) {
+        if (!config.save()) {
             source.sendFailure(
                     Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
+        }
+        if (waypointsAffected) {
+            rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
                 () -> Component.translatable("glow.teammates.config.set",
@@ -286,5 +296,20 @@ public final class GlowCommand {
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
+    }
+
+    /**
+     * Rebuild every locator-bar waypoint connection so the
+     * {@code locator_bar_teammates_only} filter takes effect immediately.
+     * Mirrors what vanilla {@code ServerScoreboard.updateTeamWaypoints} does
+     * on team membership changes.
+     */
+    private static void rebuildWaypointConnections(MinecraftServer server) {
+        for (ServerLevel level : server.getAllLevels()) {
+            ServerWaypointManager waypointManager = level.getWaypointManager();
+            for (ServerPlayer player : level.players()) {
+                waypointManager.remakeConnections(player);
+            }
+        }
     }
 }
