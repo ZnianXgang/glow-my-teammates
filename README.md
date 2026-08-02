@@ -14,6 +14,9 @@ I was playing a custom map that needed teammate glow for better gameplay, but co
 - Config stored in world save folder (`glow-my-teammates.json`)
 - Does not interfere with vanilla glowing (spectral arrows, potions, etc.)
 - Supports Minecraft 26.1 and 26.2
+- `/team remove` clears glow state immediately — no stale glow left on clients
+- Config is saved atomically; save failures are reported to the admin in chat
+- Membership changes in non-glow teams don't trigger unnecessary server-wide resyncs
 
 ## Commands
 
@@ -65,6 +68,16 @@ This mod uses [Stonecutter](https://stonecutter.kikugie.dev/) to target multiple
 Output:
 - `versions/26.1/build/libs/glow-my-teammates-1.0.3+26.1.jar`
 - `versions/26.2/build/libs/glow-my-teammates-1.0.3+26.2.jar`
+
+## Roadmap
+
+- **Locator bar** shows teammates only
+- Glow for **non-player entities** (mobs, with a config switch)
+- **Permission node** support (LuckPerms-compatible via Fabric API `permission.v1`)
+- **Server-side translations** (works for vanilla clients, no mod install needed)
+- Config sub-command and **schema versioning** (`config_version`)
+
+Development happens on the `future-plan` branch and lands on `main` feature by feature.
 
 ## Author
 
