@@ -54,11 +54,12 @@ ServerEntity.sendDirtyEntityData()
 | `onAddPairing` (`@Inject` TAIL on `addPairing`) | A new viewer starts tracking the entity | Send the correct glow state immediately, and seed the caches so `smartForcePacket` won't redundantly force later |
 | `redirectSendData` (`@Redirect` on `sendToTrackingPlayersAndSelf`) | Every dirty-data broadcast | Build no-glow + glow copies, broadcast then overlay (see §3.1) |
 
-`smartForcePacket` has two optimizations worth not breaking:
+`smartForcePacket` has three optimizations worth not breaking:
 - **Fast bail**: if `version` and `syncEpoch` are both unchanged, the entity's team cannot have changed — skip the scoreboard lookup, return `null`.
 - **Never-glow bail**: if the entity is not in a glowing team now *and* wasn't at last sync, update the caches and return `null` — later epoch/config bumps won't re-run lookups for it forever.
+- **Non-player early exit**: when `non_player_glow` is off, non-player entities can never be customized — the early-exit branch also syncs `cachedTeamName`/`cachedConfigVersion`/`cachedSyncEpoch`, so a mob that glowed before the switch was turned off never leaves stale cached state behind.
 
-`redirectSendData` fast paths (in order): not a `ClientboundSetEntityDataPacket` → forward; non-player **and** `non_player_glow` off → forward; mod disabled → forward; `hasEnabledTeams()` false → forward; entity currently glowing (`isCurrentlyGlowing()` covers the GLOWING effect *and* `setGlowingTag`) → forward. The entity-team lookup is hoisted out of the per-viewer predicate — computed once.
+`redirectSendData` fast paths (in order): not a `ClientboundSetEntityDataPacket` → forward; non-player **and** `non_player_glow` off → forward; mod disabled → forward; `hasEnabledTeams()` false → forward; entity currently glowing (`isCurrentlyGlowing()` covers the GLOWING effect *and* `setGlowingTag`) → forward. The entity-team lookup is hoisted out of the per-viewer predicate — computed once. The glow-only overlay packet is cached per server-flags value (`cachedGlowPacket`/`cachedGlowFlags`) so continuously-dirty glowing entities don't allocate a new packet every tick.
 
 The old explicit self-send was deleted: `ChunkMap.TrackedEntity.updatePlayer` excludes the entity from its own tracking set, so `sendToTrackingPlayersAndSelf` already covers self.
 
@@ -87,7 +88,7 @@ All three carry explicit method descriptors so future overload additions can't s
 
 ### 4.2 Idempotency rule
 
-Every setter (`setEnabled`, `addTeam`, `removeTeam`, `setLocatorBarTeammatesOnly`, `setNonPlayerGlow`) must be a no-op when the value is unchanged, otherwise it bumps `version` and forces a pointless full-server resync. This is a standing requirement — preserve it in new setters.
+Every setter (`setEnabled`, `addTeam`, `removeTeam`, `setLocatorBarHideOtherGlowingTeams`, `setNonPlayerGlow`) must be a no-op when the value is unchanged, otherwise it bumps `version` and forces a pointless full-server resync. This is a standing requirement — preserve it in new setters.
 
 ### 4.3 Load & migration order (in `loadFromWorld`)
 
@@ -97,6 +98,8 @@ Every setter (`setEnabled`, `addTeam`, `removeTeam`, `setLocatorBarTeammatesOnly
 4. Only then `version++`.
 
 Step 3 must run **before** step 4: the migration write is itself a config change, and the cache-invalidation semantics depend on the counter reflecting it. Adding a new switch later = minor bump only, no migration code, Gson fills the default.
+
+**Broken or literal-null config**: a JSON parse exception, or a file containing the literal `null` (Gson returns `null` without throwing), both go through `resetToDefaultsAndPersist()` — reset to defaults, call `save()` to repair the file, then `version++` (the same persist-before-bump rule as the migration path).
 
 ## 5. Locator-bar filter (`LivingEntityMixin`)
 
