@@ -401,7 +401,6 @@ public final class GlowCommand {
      * only to players whose chunk-tracking view covers the entity's chunk.
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
-        final byte FLAG_GLOWING = 0x40;
         for (ServerLevel level : server.getAllLevels()) {
             // Build a chunk → tracking-players map once instead of calling
             // ChunkMap.getPlayers (O(online players) per call) for every
@@ -426,7 +425,7 @@ public final class GlowCommand {
                 boolean vanillaGlow = entity instanceof LivingEntity living
                         ? living.isCurrentlyGlowing()
                         : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
-                                & FLAG_GLOWING) != 0;
+                                & EntityAccessor.FLAG_GLOWING) != 0;
                 if (vanillaGlow) {
                     continue; // Vanilla glow — the mod never overlaid these.
                 }
@@ -444,9 +443,9 @@ public final class GlowCommand {
                         new SynchedEntityData.DataValue<>(
                                 EntityAccessor.getSharedFlagsId().id(),
                                 EntityDataSerializers.BYTE,
-                                // 0xBF clears the glow bit (0x40), keeping every
-                                // other shared flag bit intact.
-                                (byte) (flags & 0xBF)));
+                                // EntityAccessor.GLOW_CLEAR_MASK clears the glow
+                                // bit, keeping every other shared flag intact.
+                                (byte) (flags & EntityAccessor.GLOW_CLEAR_MASK)));
                 ClientboundSetEntityDataPacket packet =
                         new ClientboundSetEntityDataPacket(entity.getId(), items);
                 for (ServerPlayer player : tracking) {

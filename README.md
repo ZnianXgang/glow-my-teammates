@@ -89,6 +89,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
 - **`/team remove <team>` cleans up immediately.** When a team is deleted, viewers stop seeing the glow right away (no stale glow until re-login).
 - **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations (English & Simplified Chinese) mean even command feedback shows readable text on vanilla clients.
 - **No self-glow in third person.** A glowing player does not see their own glow in F5 view — only teammates do. Deliberate: self always receives the no-glow variant.
+- **Network footprint.** For each glowing entity, every data update sends one extra tiny packet per teammate. Negligible for small groups; on servers with dozens of players and many glowing entities (or mob glow on dense farms) the extra bandwidth adds up — keep glow enabled only for the teams that need it.
 
 ## Building from source
 

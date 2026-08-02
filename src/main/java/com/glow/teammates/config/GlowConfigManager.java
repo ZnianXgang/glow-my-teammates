@@ -20,9 +20,11 @@ import java.util.*;
  * persistence.
  *
  * <p><strong>Threading:</strong> all mutable state is owned by the server
- * thread and must only be accessed from it (command execution, ServerEntity
- * ticks, Scoreboard events). Do not call setters or getters from async
- * contexts without adding synchronization.
+ * thread and must only be written from it (command execution, ServerEntity
+ * ticks, Scoreboard events). Reading live state (getters such as
+ * {@code isEnabled()}) from async contexts is unsupported; only
+ * {@link #getEnabledTeams()} returns a defensive snapshot that is safe to
+ * iterate anywhere.
  */
 public class GlowConfigManager {
     private static final Gson GSON = new GsonBuilder()
@@ -110,25 +112,21 @@ public class GlowConfigManager {
                         save();
                     }
                     this.version++;
+                } else {
+                    // The file contains the literal JSON "null" — Gson returns
+                    // null without throwing. Treat it like a corrupt file:
+                    // reset to defaults, persist the repair, and invalidate
+                    // any cached glow state from a previous world.
+                    GlowMyTeammates.LOGGER.warn(
+                            "Config file contains literal null, resetting to defaults");
+                    resetToDefaultsAndPersist();
                 }
                 GlowMyTeammates.LOGGER.info(
                         "Loaded config: enabled={}, teams={}, locator_bar_hide_other_glowing_teams={}, non_player_glow={}",
                         enabled, enabledTeams, locatorBarHideOtherGlowingTeams, nonPlayerGlow);
             } catch (Exception e) {
                 GlowMyTeammates.LOGGER.error("Failed to load config, using defaults", e);
-                this.enabled = true;
-                this.enabledTeams.clear();
-                this.locatorBarHideOtherGlowingTeams = false;
-                this.nonPlayerGlow = false;
-                // Persist the fallback so a corrupt file is repaired instead
-                // of re-reporting the error on every server start. Runs before
-                // version++ for the same cache-invalidation semantics as the
-                // migration path.
-                save();
-                // Bump the version so entities that already cached the old
-                // config state (cachedConfigVersion == old version) notice
-                // the fallback to defaults and force a glow resync.
-                this.version++;
+                resetToDefaultsAndPersist();
             }
         } else {
             GlowMyTeammates.LOGGER.info(
@@ -143,6 +141,22 @@ public class GlowConfigManager {
             this.version++;
             save();
         }
+    }
+
+    /**
+     * Reset all runtime state to defaults, persist the fallback so a corrupt
+     * or literal-null config file is repaired instead of re-reporting the
+     * error on every server start, and bump {@code version} so entities that
+     * already cached the old state notice the fallback and force a glow
+     * resync.
+     */
+    private void resetToDefaultsAndPersist() {
+        this.enabled = true;
+        this.enabledTeams.clear();
+        this.locatorBarHideOtherGlowingTeams = false;
+        this.nonPlayerGlow = false;
+        save();
+        this.version++;
     }
 
     /**

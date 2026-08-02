@@ -60,11 +60,22 @@ public abstract class ServerEntityMixin {
     private long cachedSyncEpoch;
 
     /**
-     * Bit in the entity shared flags ({@code Entity.DATA_SHARED_FLAGS_ID})
-     * that controls glowing: {@code 1 << Entity.FLAG_GLOWING}.
+     * Cached glow-only packet and the server flags value it was built from.
+     * Continuously-dirty glowing entities (frozen, drowning, mob farms with
+     * {@code non_player_glow} on) would otherwise allocate a new packet every
+     * tick; the cache is rebuilt whenever the server flags change. The cached
+     * packet is immutable (encode is read-only), so reusing it for every
+     * teammate viewer is safe.
      */
     @Unique
-    private static final byte FLAG_GLOWING = 0x40;
+    private Byte cachedGlowFlags;
+    @Unique
+    private ClientboundSetEntityDataPacket cachedGlowPacket;
+
+    /**
+     * Bit in the entity shared flags ({@code Entity.DATA_SHARED_FLAGS_ID})
+     * that controls glowing — see {@link EntityAccessor#FLAG_GLOWING}.
+     */
 
     // ========== Smart force: only when team membership or config changes ==========
 
@@ -209,7 +220,7 @@ public abstract class ServerEntityMixin {
 
         EntityDataAccessor<Byte> flagsAccessor = EntityAccessor.getSharedFlagsId();
         byte flags = entity.getEntityData().get(flagsAccessor);
-        byte glowFlags = (byte) (flags | FLAG_GLOWING);
+        byte glowFlags = (byte) (flags | EntityAccessor.FLAG_GLOWING);
 
         List<SynchedEntityData.DataValue<?>> items = List.of(
                 new SynchedEntityData.DataValue<>(
@@ -332,7 +343,7 @@ public abstract class ServerEntityMixin {
         boolean vanillaGlow = entity instanceof LivingEntity living
                 ? living.isCurrentlyGlowing()
                 : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
-                        & FLAG_GLOWING) != 0;
+                        & EntityAccessor.FLAG_GLOWING) != 0;
         if (vanillaGlow) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
@@ -402,7 +413,7 @@ public abstract class ServerEntityMixin {
         for (SynchedEntityData.DataValue<?> item : packet.packedItems()) {
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 foundFlag = true;
-                flagsMatch = ((current & FLAG_GLOWING) != 0) == shouldGlow;
+                flagsMatch = ((current & EntityAccessor.FLAG_GLOWING) != 0) == shouldGlow;
                 break;
             }
         }
@@ -420,7 +431,8 @@ public abstract class ServerEntityMixin {
             SynchedEntityData.DataValue<?> item = items.get(i);
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 byte newValue = (byte) (shouldGlow
-                        ? (current | FLAG_GLOWING) : (current & 0xBF));
+                        ? (current | EntityAccessor.FLAG_GLOWING)
+                        : (current & EntityAccessor.GLOW_CLEAR_MASK));
                 // item.id() == sharedFlagsId was verified above — reuse
                 // it instead of hardcoding the flags slot id (0).
                 SynchedEntityData.DataValue rawItem =
@@ -431,13 +443,23 @@ public abstract class ServerEntityMixin {
             }
         }
         if (!foundFlag) {
-            // shouldGlow is true here — append the entry from the entity's
-            // current flags (a bare 0x40 would wipe the other flag bits).
+            // shouldGlow is true here — build the glow-only packet from the
+            // entity's current flags (a bare 0x40 would wipe the other flag
+            // bits). Cache it while the server flags are unchanged: a
+            // continuously-dirty glowing entity would otherwise allocate a new
+            // packet every tick. The other dirty entries were already delivered
+            // by the no-glow broadcast, so a flags-only overlay is sufficient.
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
-            items.add(new SynchedEntityData.DataValue<>(
-                    sharedFlagsId, EntityDataSerializers.BYTE,
-                    (byte) (current | FLAG_GLOWING)));
+            if (cachedGlowPacket == null || cachedGlowFlags == null
+                    || cachedGlowFlags.byteValue() != current) {
+                cachedGlowFlags = current;
+                cachedGlowPacket = new ClientboundSetEntityDataPacket(packet.id(),
+                        List.of(new SynchedEntityData.DataValue<>(
+                                sharedFlagsId, EntityDataSerializers.BYTE,
+                                (byte) (current | EntityAccessor.FLAG_GLOWING))));
+            }
+            return cachedGlowPacket;
         }
         return new ClientboundSetEntityDataPacket(packet.id(), items);
     }
