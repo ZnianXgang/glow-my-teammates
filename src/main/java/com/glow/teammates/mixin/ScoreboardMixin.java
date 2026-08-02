@@ -50,6 +50,16 @@ public abstract class ScoreboardMixin {
      * covered by {@link #onRemovePlayerFromTeam(String, PlayerTeam, CallbackInfo)}
      * below — hooking both would double-bump.
      */
+    /**
+     * Deliberately unconditional: vanilla's two-arg
+     * {@code removePlayerFromTeam(String, PlayerTeam)} is a silent no-op when
+     * the player is not a member of the given team, and this hook still bumps
+     * {@code syncEpoch} for it. Accepted on purpose — repeated no-op removals
+     * inside one tick collapse into a single resync round because
+     * {@code ServerEntityMixin#smartForcePacket} compares counters with
+     * {@code !=}, and vanilla's own single-arg path never reaches here for
+     * non-members. Do not "fix" without a real churn scenario.
+     */
     @Inject(method = "removePlayerFromTeam(Ljava/lang/String;"
             + "Lnet/minecraft/world/scores/PlayerTeam;)V",
             at = @At("RETURN"))

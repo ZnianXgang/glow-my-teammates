@@ -251,6 +251,13 @@ public abstract class ServerEntityMixin {
      * has glow enabled. Returns {@code null} otherwise. Non-player entities
      * are looked up by their scoreboard name ({@link Entity#getScoreboardName()},
      * which is the UUID string for non-players).
+     *
+     * <p>Runs once per dirty packet, plus once per viewer inside the
+     * {@code isTeammate} predicate in {@link #redirectSendData}. The O(1) hash
+     * probes are accepted as-is — caching the team on the {@code ServerEntity}
+     * would need precise invalidation that the global {@code syncEpoch} cannot
+     * distinguish (entity switched teams vs viewer switched teams). See
+     * AGENTS.md §10.2.
      */
     @Unique
     private static PlayerTeam getGlowingTeam(Entity entity) {

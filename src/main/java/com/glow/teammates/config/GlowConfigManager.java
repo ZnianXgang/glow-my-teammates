@@ -271,6 +271,12 @@ public class GlowConfigManager {
     /**
      * Call when a player joins or leaves any team, so the mixin can force
      * a glow-state resync for all viewers of glowing entities.
+     *
+     * <p>The epoch is intentionally global: any bump resyncs every glowing
+     * entity, which is acceptable on Fabric-scale servers (<100 players) and
+     * collapses into one resync round per tick regardless of how many bumps
+     * happen inside it (counters are compared with {@code !=}). See AGENTS.md
+     * §10.1 before "optimizing" this to per-team granularity.
      */
     public void bumpSyncEpoch() {
         this.syncEpoch++;

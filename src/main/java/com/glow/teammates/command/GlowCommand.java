@@ -399,6 +399,9 @@ public final class GlowCommand {
      * or glow tag), and the same shared-flags bit checked directly for
      * non-living entities (which have no effect, only the tag). Packets go
      * only to players whose chunk-tracking view covers the entity's chunk.
+     *
+     * <p>One-shot at command frequency; the chunk → tracking-players map keeps
+     * the per-entity work at a single hash lookup. See AGENTS.md §10.3.
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
