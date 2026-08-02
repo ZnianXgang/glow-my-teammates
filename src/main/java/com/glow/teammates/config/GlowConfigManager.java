@@ -39,6 +39,19 @@ public class GlowConfigManager {
      */
     private long syncEpoch;
 
+    /**
+     * Whether the locator bar should show teammates only (feature: locator
+     * bar filter). Default {@code false}.
+     */
+    private boolean locatorBarTeammatesOnly;
+
+    /**
+     * Whether non-player entities (mobs) are eligible for team glow.
+     * Default {@code false} — once enabled, mob-dense farms pay per-dirty-packet
+     * overhead in {@code ServerEntityMixin#redirectSendData}.
+     */
+    private boolean nonPlayerGlow;
+
     public static GlowConfigManager getInstance() {
         if (INSTANCE == null) {
             INSTANCE = new GlowConfigManager();
@@ -68,6 +81,20 @@ public class GlowConfigManager {
                                 this.enabledTeams.add(team);
                             }
                         }
+                    }
+                    if (data.config != null) {
+                        this.locatorBarTeammatesOnly = data.config.locatorBarTeammatesOnly;
+                        this.nonPlayerGlow = data.config.nonPlayerGlow;
+                    }
+                    // Schema migration: configs written before config_version
+                    // existed have a null version array — treat them as legacy
+                    // (major 0) and rewrite with the current schema. Runs before
+                    // version++ so the migration write keeps the cache-invalidation
+                    // semantics intact (the config did change: new fields appeared).
+                    int major = (data.configVersion == null || data.configVersion.length == 0)
+                            ? 0 : data.configVersion[0];
+                    if (major < 1) {
+                        save();
                     }
                     this.version++;
                 }
@@ -109,6 +136,11 @@ public class GlowConfigManager {
         try {
             Files.createDirectories(configPath.getParent());
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
+            data.configVersion = new int[]{1, 0};
+            ConfigSubData subConfig = new ConfigSubData();
+            subConfig.locatorBarTeammatesOnly = this.locatorBarTeammatesOnly;
+            subConfig.nonPlayerGlow = this.nonPlayerGlow;
+            data.config = subConfig;
             Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
             try (Writer writer = new OutputStreamWriter(
                     Files.newOutputStream(tmpPath), StandardCharsets.UTF_8)) {
@@ -184,6 +216,39 @@ public class GlowConfigManager {
         return removed;
     }
 
+    public boolean isLocatorBarTeammatesOnly() {
+        return locatorBarTeammatesOnly;
+    }
+
+    /**
+     * Whether the locator bar should show teammates only. Idempotent — no-op
+     * when the value is unchanged, to avoid a spurious version bump and the
+     * resulting full-server resync.
+     */
+    public void setLocatorBarTeammatesOnly(boolean locatorBarTeammatesOnly) {
+        if (this.locatorBarTeammatesOnly == locatorBarTeammatesOnly) {
+            return;
+        }
+        this.locatorBarTeammatesOnly = locatorBarTeammatesOnly;
+        this.version++;
+    }
+
+    public boolean isNonPlayerGlow() {
+        return nonPlayerGlow;
+    }
+
+    /**
+     * Whether non-player entities are eligible for team glow. Idempotent —
+     * no-op when the value is unchanged.
+     */
+    public void setNonPlayerGlow(boolean nonPlayerGlow) {
+        if (this.nonPlayerGlow == nonPlayerGlow) {
+            return;
+        }
+        this.nonPlayerGlow = nonPlayerGlow;
+        this.version++;
+    }
+
     public Set<String> getEnabledTeams() {
         return Collections.unmodifiableSet(enabledTeams);
     }
@@ -192,6 +257,16 @@ public class GlowConfigManager {
     public static class ConfigData {
         boolean enabled = true;
         List<String> teams = new ArrayList<>();
+        /**
+         * Disk schema version {@code [major, minor]}. {@code null} means the
+         * file predates schema versioning (legacy) — the loader migrates it.
+         */
+        int[] configVersion;
+        /**
+         * Feature switches. {@code null} means legacy config — the loader
+         * falls back to defaults and rewrites the file with the current schema.
+         */
+        ConfigSubData config;
 
         ConfigData() {}
 
@@ -199,5 +274,12 @@ public class GlowConfigManager {
             this.enabled = enabled;
             this.teams = teams;
         }
+    }
+
+    public static class ConfigSubData {
+        boolean locatorBarTeammatesOnly = false;
+        boolean nonPlayerGlow = false;
+
+        ConfigSubData() {}
     }
 }

@@ -2,6 +2,7 @@ package com.glow.teammates.command;
 
 import com.glow.teammates.config.GlowConfigManager;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
 import net.minecraft.ChatFormatting;
@@ -12,6 +13,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.permissions.PermissionLevel;
 
 import java.util.Set;
+import java.util.function.Consumer;
 
 public final class GlowCommand {
 
@@ -100,6 +102,37 @@ public final class GlowCommand {
                 .executes(ctx -> listTeams(ctx.getSource())));
 
         root.then(teamNode);
+
+        // /teamglow config ...
+        var configNode = Commands.literal("config")
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/config"),
+                        PermissionLevel.GAMEMASTERS));
+
+        // /teamglow config list
+        configNode.then(Commands.literal("list")
+                .executes(ctx -> listConfig(ctx.getSource())));
+
+        // /teamglow config locator_bar_teammates_only <true|false>
+        configNode.then(Commands.literal("locator_bar_teammates_only")
+                .then(Commands.argument("value", BoolArgumentType.bool())
+                        .executes(ctx -> setConfigSwitch(
+                                ctx.getSource(),
+                                "locator_bar_teammates_only",
+                                BoolArgumentType.getBool(ctx, "value"),
+                                GlowConfigManager.getInstance()::setLocatorBarTeammatesOnly))));
+
+        // /teamglow config non_player_glow <true|false>
+        configNode.then(Commands.literal("non_player_glow")
+                .then(Commands.argument("value", BoolArgumentType.bool())
+                        .executes(ctx -> setConfigSwitch(
+                                ctx.getSource(),
+                                "non_player_glow",
+                                BoolArgumentType.getBool(ctx, "value"),
+                                GlowConfigManager.getInstance()::setNonPlayerGlow))));
+
+        root.then(configNode);
 
         // Default (no argument) → show status (same permission as /teamglow status)
         root.requires(PermissionPredicates.require(
@@ -222,6 +255,33 @@ public final class GlowCommand {
                                     .withStyle(ChatFormatting.WHITE)),
                     false);
         }
+        return 1;
+    }
+
+    private static int listConfig(CommandSourceStack source) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        String info = "\n  locator_bar_teammates_only = " + config.isLocatorBarTeammatesOnly()
+                + "\n  non_player_glow = " + config.isNonPlayerGlow();
+        source.sendSuccess(
+                () -> Component.literal("Config:").withStyle(ChatFormatting.YELLOW)
+                        .append(Component.literal(info).withStyle(ChatFormatting.WHITE)),
+                false);
+        return 1;
+    }
+
+    private static int setConfigSwitch(CommandSourceStack source, String feature,
+                                       boolean value, Consumer<Boolean> setter) {
+        setter.accept(value);
+        if (!GlowConfigManager.getInstance().save()) {
+            source.sendFailure(
+                    Component.literal("Failed to save config — this change will be lost on restart.")
+                            .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        source.sendSuccess(
+                () -> Component.literal(feature + " set to " + value + ".")
+                        .withStyle(ChatFormatting.GREEN),
+                true);
         return 1;
     }
 }
