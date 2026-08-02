@@ -48,7 +48,7 @@ public final class GlowCommand {
     private static final Predicate<CommandSourceStack> STATUS_REQUIREMENT =
             PermissionPredicates.require(
                     Identifier.fromNamespaceAndPath(
-                            "glow-my-teammates", "command/status"),
+                            "glow-my-teammates", "command.status"),
                     PermissionLevel.ALL);
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -58,7 +58,7 @@ public final class GlowCommand {
         root.then(Commands.literal("on")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/on"),
+                                "glow-my-teammates", "command.on"),
                         PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> setEnabled(ctx.getSource(), true)));
 
@@ -66,7 +66,7 @@ public final class GlowCommand {
         root.then(Commands.literal("off")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/off"),
+                                "glow-my-teammates", "command.off"),
                         PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> setEnabled(ctx.getSource(), false)));
 
@@ -74,7 +74,7 @@ public final class GlowCommand {
         root.then(Commands.literal("status")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/status"),
+                                "glow-my-teammates", "command.status"),
                         PermissionLevel.ALL))
                 .executes(ctx -> showStatus(ctx.getSource())));
 
@@ -85,7 +85,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("add")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/team/add"),
+                                "glow-my-teammates", "command.team/add"),
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
@@ -110,7 +110,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("remove")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/team/remove"),
+                                "glow-my-teammates", "command.team/remove"),
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
@@ -129,7 +129,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("list")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/team/list"),
+                                "glow-my-teammates", "command.team/list"),
                         PermissionLevel.ALL))
                 .executes(ctx -> listTeams(ctx.getSource())));
 
@@ -139,7 +139,7 @@ public final class GlowCommand {
         var configNode = Commands.literal("config")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command/config"),
+                                "glow-my-teammates", "command.config"),
                         PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> listConfig(ctx.getSource()));
 

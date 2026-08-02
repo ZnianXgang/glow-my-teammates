@@ -119,13 +119,13 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 
 ```
 /teamglow
-├── on | off                    command/on | command/off          (fallback OP 2)
-├── status                      command/status                   (fallback: all)
+├── on | off                    command.on | command.off          (fallback OP 2)
+├── status                      command.status                   (fallback: all)
 ├── team
-│   ├── add <team>              command/team/add                 (fallback OP 2)
-│   ├── remove <team>           command/team/remove              (fallback OP 2)
-│   └── list                    command/team/list                (fallback: all)
-└── config                       command/config                   (fallback OP 2)
+│   ├── add <team>              command.team.add                 (fallback OP 2)
+│   ├── remove <team>           command.team.remove              (fallback OP 2)
+│   └── list                    command.team.list                (fallback: all)
+└── config                       command.config                   (fallback OP 2)
     ├── (no argument → list)     same node
     ├── locator_bar_hide_other_glowing_teams <bool>   same node
     └── non_player_glow <bool>              same node
