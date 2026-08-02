@@ -23,6 +23,7 @@ src/main/resources/
   data/glow-my-teammates/lang/      en_us.json + zh_cn.json — translated server-side (Server-Translations API)
 src/main/java/com/glow/teammates/
   GlowMyTeammates.java              ModInitializer: hooks SERVER_STARTED + command registration
+  GlowConstants.java                Shared glow flag constants (0x40 / 0xBF) — plain class, see rule §8.9
   config/GlowConfigManager.java     Singleton holding all runtime state + JSON persistence
   command/GlowCommand.java          /teamglow tree
   mixin/
@@ -159,6 +160,7 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 6. **`config_version` migration must precede `version++`** (§4.3).
 7. **Mixin target classes load on the client too** (`environment: "*"`). Keep this safe: client-side *application* is harmless because the hooked server methods never run there — but never put client-only code in a shared mixin.
 8. **Server-Translations keys live in `data/<modid>/lang/`, not `assets/`** — the server reads the former.
+9. **Never define fields in `@Mixin` interfaces** — even `static final` constants are injected into the target class and fail validation unless `@Shadow` (`InvalidInterfaceMixinException`, crashes at startup, compiles fine). Shared constants live in `GlowConstants` (a plain class).
 
 ## 9. Workflow
 
