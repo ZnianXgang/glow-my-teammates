@@ -4,6 +4,7 @@ import com.glow.teammates.config.GlowConfigManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -115,31 +116,41 @@ public final class GlowCommand {
         config.setEnabled(enabled);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+                    Component.literal("Failed to save config — this change will be lost on restart.")
+                            .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         String state = enabled ? "enabled" : "disabled";
         source.sendSuccess(
-                () -> Component.literal("§aTeam glow " + state + "."),
+                () -> Component.literal("Team glow " + state + ".")
+                        .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
     }
 
     private static int showStatus(CommandSourceStack source) {
         GlowConfigManager config = GlowConfigManager.getInstance();
-        String state = config.isEnabled() ? "§aenabled" : "§cdisabled";
+        Component state = Component.literal(config.isEnabled() ? "enabled" : "disabled")
+                .withStyle(config.isEnabled() ? ChatFormatting.GREEN : ChatFormatting.RED);
         Set<String> teams = config.getEnabledTeams();
 
         source.sendSuccess(
-                () -> Component.literal("§6Team glow: " + state), false);
+                () -> Component.literal("Team glow: ").withStyle(ChatFormatting.GOLD)
+                        .append(state),
+                false);
 
         if (teams.isEmpty()) {
             source.sendSuccess(
-                    () -> Component.literal("§7No teams have glow enabled."), false);
+                    () -> Component.literal("No teams have glow enabled.")
+                            .withStyle(ChatFormatting.GRAY),
+                    false);
         } else {
             source.sendSuccess(
-                    () -> Component.literal("§eEnabled teams: §f" + String.join(", ", teams)),
+                    () -> Component.literal("Enabled teams: ")
+                            .withStyle(ChatFormatting.YELLOW)
+                            .append(Component.literal(String.join(", ", teams))
+                                    .withStyle(ChatFormatting.WHITE)),
                     false);
         }
         return 1;
@@ -150,19 +161,22 @@ public final class GlowCommand {
 
         if (config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.literal("§cTeam '" + teamName + "' already has glow enabled."));
+                    Component.literal("Team '" + teamName + "' already has glow enabled.")
+                            .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         config.addTeam(teamName);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+                    Component.literal("Failed to save config — this change will be lost on restart.")
+                            .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         source.sendSuccess(
-                () -> Component.literal("§aTeam '" + teamName + "' now has glow enabled."),
+                () -> Component.literal("Team '" + teamName + "' now has glow enabled.")
+                        .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
     }
@@ -172,19 +186,22 @@ public final class GlowCommand {
 
         if (!config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.literal("§cTeam '" + teamName + "' does not have glow enabled."));
+                    Component.literal("Team '" + teamName + "' does not have glow enabled.")
+                            .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         config.removeTeam(teamName);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+                    Component.literal("Failed to save config — this change will be lost on restart.")
+                            .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         source.sendSuccess(
-                () -> Component.literal("§aTeam '" + teamName + "' glow disabled."),
+                () -> Component.literal("Team '" + teamName + "' glow disabled.")
+                        .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
     }
@@ -194,11 +211,15 @@ public final class GlowCommand {
 
         if (teams.isEmpty()) {
             source.sendSuccess(
-                    () -> Component.literal("§7No teams have glow enabled."),
+                    () -> Component.literal("No teams have glow enabled.")
+                            .withStyle(ChatFormatting.GRAY),
                     false);
         } else {
             source.sendSuccess(
-                    () -> Component.literal("§eEnabled teams: §f" + String.join(", ", teams)),
+                    () -> Component.literal("Enabled teams: ")
+                            .withStyle(ChatFormatting.YELLOW)
+                            .append(Component.literal(String.join(", ", teams))
+                                    .withStyle(ChatFormatting.WHITE)),
                     false);
         }
         return 1;
