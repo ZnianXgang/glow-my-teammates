@@ -86,7 +86,10 @@ public class GlowConfigManager {
                     this.enabledTeams.clear();
                     if (data.teams != null) {
                         for (String team : data.teams) {
-                            if (team != null) {
+                            // Skip null and empty names — an empty string can
+                            // never match a real team (vanilla forbids it) and
+                            // would otherwise be persisted back on the next save.
+                            if (team != null && !team.isEmpty()) {
                                 this.enabledTeams.add(team);
                             }
                         }
