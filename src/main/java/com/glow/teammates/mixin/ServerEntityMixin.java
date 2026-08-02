@@ -70,7 +70,7 @@ public abstract class ServerEntityMixin {
 
     /**
      * {@link SynchedEntityData#packDirty()} returns {@code null} when no entity
-     * data has changed. Instead of <em>always</em> forcing a packet for Player
+     * data has changed. Instead of <em>always</em> forcing a packet for tracked
      * entities (which floods the network every tick), this method only forces a
      * packet when the entity's glowing-team membership or the config version has
      * changed since the last sync.
@@ -95,7 +95,8 @@ public abstract class ServerEntityMixin {
         if (original != null) {
             return original; // Natural dirty data → @Redirect handles it.
         }
-        if (!(entity instanceof Player entityPlayer)) {
+        if (!(entity instanceof Player)
+                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
             return null;
         }
 
@@ -112,7 +113,7 @@ public abstract class ServerEntityMixin {
 
         // Determine current glow state for this entity.
         PlayerTeam glowingTeam = config.isEnabled()
-                ? getGlowingTeam(entityPlayer) : null;
+                ? getGlowingTeam(entity) : null;
         String currentTeamName = glowingTeam != null
                 ? glowingTeam.getName() : null;
 
@@ -172,7 +173,8 @@ public abstract class ServerEntityMixin {
      */
     @Inject(method = "addPairing", at = @At("TAIL"))
     private void onAddPairing(ServerPlayer viewer, CallbackInfo ci) {
-        if (!(entity instanceof Player entityPlayer)) {
+        if (!(entity instanceof Player)
+                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
             return;
         }
         GlowConfigManager config = GlowConfigManager.getInstance();
@@ -183,7 +185,7 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        PlayerTeam glowingTeam = getGlowingTeam(entityPlayer);
+        PlayerTeam glowingTeam = getGlowingTeam(entity);
         if (glowingTeam == null) {
             return;
         }
@@ -221,14 +223,16 @@ public abstract class ServerEntityMixin {
     // ========== Helpers ==========
 
     /**
-     * Returns the {@link PlayerTeam} the given player belongs to, if that team
-     * has glow enabled. Returns {@code null} otherwise.
+     * Returns the {@link PlayerTeam} the given entity belongs to, if that team
+     * has glow enabled. Returns {@code null} otherwise. Non-player entities
+     * are looked up by their scoreboard name ({@link Entity#getScoreboardName()},
+     * which is the UUID string for non-players).
      */
     @Unique
-    private static PlayerTeam getGlowingTeam(Player player) {
-        Scoreboard scoreboard = player.level().getScoreboard();
+    private static PlayerTeam getGlowingTeam(Entity entity) {
+        Scoreboard scoreboard = entity.level().getScoreboard();
         PlayerTeam team = scoreboard.getPlayersTeam(
-                player.getScoreboardName());
+                entity.getScoreboardName());
         if (team == null) {
             return null;
         }
@@ -264,7 +268,8 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        if (!(entity instanceof Player entityPlayer)) {
+        if (!(entity instanceof Player)
+                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
@@ -286,14 +291,14 @@ public abstract class ServerEntityMixin {
         // setGlowingTag): isCurrentlyGlowing() on the server equals
         // hasEffect(GLOWING) || hasGlowingTag (see LivingEntity), which is
         // exactly what the shared-flags 0x40 bit reflects.
-        if (entityPlayer instanceof LivingEntity living
+        if (entity instanceof LivingEntity living
                 && living.isCurrentlyGlowing()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
 
-        String entityName = entityPlayer.getScoreboardName();
-        Scoreboard scoreboard = entityPlayer.level().getScoreboard();
+        String entityName = entity.getScoreboardName();
+        Scoreboard scoreboard = entity.level().getScoreboard();
         PlayerTeam entityTeamObj = scoreboard.getPlayersTeam(entityName);
 
         // Entity not in a glowing team → no glow customization needed
