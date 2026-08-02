@@ -168,3 +168,27 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 - Commit style: conventional commits (`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`), single concern per commit.
 - Before committing: `./gradlew "Reset active project"`, then verify `./gradlew build` (both versions) passes.
 - Future version bumps live in root `gradle.properties` (`mod_version`) — jar names and `fabric.mod.json` follow automatically.
+
+## 10. Deliberate non-optimizations
+
+Three "could this be faster?" items were analyzed and deliberately left alone. Revisit them only if the deployment profile changes, not as routine cleanup.
+
+### 10.1 Global `syncEpoch` resync stays global
+
+A membership change in any glow-enabled team bumps the shared `syncEpoch`, and every glowing entity forces one broadcast to all its tracking viewers on the next tick — O(glowing entities × viewers). This is kept global on purpose:
+
+- **Fabric servers are small.** Large deployments run Paper/Folia; a Fabric server rarely exceeds ~100 players. A resync is a few hundred packets at most (dozens of glowing entities × dozens of viewers), one-shot per bump.
+- **One round per bump, not per event.** `smartForcePacket` compares counters with `!=`, so a batch of membership changes inside one tick collapses into one forced broadcast per entity; caches re-align and nothing repeats.
+- **Per-team granularity is a correctness liability.** Splitting `syncEpoch` per team would force tracking viewer-side changes too (a viewer switching teams changes which entities need resyncing) — the global epoch handles that for free.
+- **The real guard is the default.** `non_player_glow` defaults off and the README warns against mob-dense farms; the one configuration that could make this cost visible is disabled by default. Keep it that way.
+
+### 10.2 Per-packet scoreboard lookups are accepted
+
+Once any team has glow enabled, every dirty entity-data send performs one `getPlayersTeam` lookup plus one per viewer. Accepted because:
+
+- Each lookup is an O(1) hash probe, sub-microsecond, dwarfed by the two packet allocations and network writes every dirty send already pays.
+- Caching the entity's team on the `ServerEntity` would need precise invalidation, but the global `syncEpoch` cannot distinguish "the entity switched teams" from "a viewer switched teams" — the cache would go stale or be discarded on every bump, i.e. useless.
+
+### 10.3 `clearNonPlayerGlow` is a one-shot command
+
+It iterates every non-player entity once when `non_player_glow` is switched off. It already builds a chunk → tracking-players map (one O(players × tracked chunks) pass), so the per-entity work is a hash lookup; at command frequency this is acceptable and not worth optimizing.
