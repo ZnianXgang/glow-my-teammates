@@ -8,7 +8,7 @@ Three ideas hold the whole design together:
 
 1. **Glow is per-viewer, not per-entity.** The server broadcasts a no-glow variant of every entity-data packet, then overlays a glow variant to teammates only. Netty's per-connection FIFO ordering guarantees the overlay arrives last.
 2. **Everything is event-driven.** No per-tick loops. The mod reacts to exactly three kinds of events: entity data going dirty, a new viewer entering tracking range, and team/config changes. In steady state it does nothing.
-3. **Caches must be invalidated, not guessed.** Three monotonically increasing counters (`version`, `syncEpoch`, and the disk `config_version`) tell the mixins when a previously-sent glow state may be stale.
+3. **Caches must be invalidated, not guessed.** Three monotonically increasing counters (`version`, `syncEpoch`, and the disk `configVersion`) tell the mixins when a previously-sent glow state may be stale.
 
 ## 2. Repository map
 
@@ -83,7 +83,7 @@ All three carry explicit method descriptors so future overload additions can't s
 |---|---|---|---|
 | `version` | runtime `long` | Entity-side cache invalidation (`cachedConfigVersion`) | Every state change via idempotent setters |
 | `syncEpoch` | runtime `long` | Viewer-side cache invalidation (`cachedSyncEpoch`) | `bumpSyncEpoch()` from team changes in glow teams |
-| `config_version` | disk `int[]` `[major, minor]` | Disk schema version, *not* a cache counter | Migration only |
+| `configVersion` | disk `int[]` `[major, minor]` | Disk schema version, *not* a cache counter | Migration only |
 
 `version` and `syncEpoch` live entirely in RAM and reset every server start — that is fine, caches are per-`ServerEntity` instance and are re-seeded by `onAddPairing`.
 
@@ -157,7 +157,7 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 3. **Mojang mappings only.** All class/method names in code and mixin descriptors are official. `Identifier` is `net.minecraft.resources.Identifier`, not `ResourceLocation`; `net.minecraft.server.permissions.PermissionLevel`, not a Fabric enum.
 4. **Non-glow team changes must not bump `syncEpoch`** — auto-team plugins cause constant membership churn; bumping for non-glow teams would resync the whole server for nothing.
 5. **Idempotent setters or pay the resync cost** (§4.2).
-6. **`config_version` migration must precede `version++`** (§4.3).
+6. **`configVersion` migration must precede `version++`** (§4.3).
 7. **Mixin target classes load on the client too** (`environment: "*"`). Keep this safe: client-side *application* is harmless because the hooked server methods never run there — but never put client-only code in a shared mixin.
 8. **Server-Translations keys live in `data/<modid>/lang/`, not `assets/`** — the server reads the former.
 9. **Never define fields in `@Mixin` interfaces** — even `static final` constants are injected into the target class and fail validation unless `@Shadow` (`InvalidInterfaceMixinException`, crashes at startup, compiles fine). Shared constants live in `GlowConstants` (a plain class).

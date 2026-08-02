@@ -71,16 +71,19 @@ Stored per world at `<world>/glow-my-teammates.json`:
 ```json
 {
   "enabled": true,
-  "teams": ["red", "blue"],
+  "teams": [
+    "red",
+    "blue"
+  ],
+  "configVersion": [1, 0],
   "config": {
-    "locator_bar_hide_other_glowing_teams": false,
-    "non_player_glow": false
-  },
-  "config_version": [1, 0]
+    "locatorBarHideOtherGlowingTeams": false,
+    "nonPlayerGlow": false
+  }
 }
 ```
 
-- `config_version` is the disk schema version. Configs written before it existed are migrated automatically on first load — you never have to edit the file by hand.
+- `configVersion` is the disk schema version. Configs written before it existed are migrated automatically on first load — you never have to edit the file by hand.
 - Edits made by commands are written atomically (temp file + atomic move); if writing fails, you are told in chat instead of silently losing the change.
 
 ## How it interacts with vanilla
