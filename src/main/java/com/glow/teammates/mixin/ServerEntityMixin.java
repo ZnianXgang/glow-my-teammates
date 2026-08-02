@@ -108,6 +108,14 @@ public abstract class ServerEntityMixin {
         }
         GlowConfigManager config = GlowConfigManager.getInstance();
         if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
+            // Non-player glow is off and this is not a player — this entity can
+            // never be customized by the mod. Sync the caches anyway: a mob
+            // that glowed before the switch was turned off (cachedTeamName
+            // set) and never produces dirty data again would otherwise keep
+            // stale cached state forever.
+            cachedTeamName = null;
+            cachedConfigVersion = config.getVersion();
+            cachedSyncEpoch = config.getSyncEpoch();
             return null;
         }
 
