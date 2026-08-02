@@ -27,13 +27,14 @@ Server-side Fabric mod that makes teammates glow for each other. Uses vanilla `/
     ├── command/GlowCommand.java     /teamglow command
     └── mixin/
         ├── EntityAccessor.java        @Accessor for Entity.DATA_SHARED_FLAGS_ID
+        ├── LivingEntityMixin.java     Locator bar filter (MixinExtras @ModifyReturnValue)
         ├── ScoreboardMixin.java       Detects team membership changes
         └── ServerEntityMixin.java     Core: event-driven per-client glow
 ```
 
 ## How It Works
 
-Three Mixin classes working together:
+Four Mixin classes working together:
 
 ### 1. `ServerEntityMixin` — Core glow logic
 
@@ -77,12 +78,23 @@ Three Mixin classes working together:
 
 - `@Accessor` for `Entity.DATA_SHARED_FLAGS_ID` — static accessor for the shared flags `EntityDataAccessor`
 
+### 4. `LivingEntityMixin` — Locator bar filter
+
+- MixinExtras `@ModifyReturnValue` on `LivingEntity.makeWaypointConnectionWith(ServerPlayer)` (returns `Optional<Connection>`; an empty result makes `ServerWaypointManager.createConnection` tear the connection down)
+- Gated by the `locator_bar_teammates_only` config switch (default off → vanilla behavior)
+- **Asymmetric, receiver-driven semantics**: a viewer in a glow-enabled team hides members of OTHER glow-enabled teams (same-team, non-glow and teamless entities stay visible); viewers outside glow-enabled teams see everyone
+- **No Stonecutter version gates** — the interface signature is identical in 26.1 and 26.2 (the `LocatorBarRenderer` vs `LocatorBar` client difference only matters for the client-side filtering route, which was not taken)
+- MixinExtras is compile-time only (`io.github.llamalad7:mixinextras-fabric:0.5.4`); the runtime is bundled with fabric-loader (0.18.4 ships 0.5.0, 0.19.3 ships 0.5.4)
+- Toggling the switch rebuilds all waypoint connections via `ServerLevel.getWaypointManager().remakeConnections(player)` (mirrors vanilla `ServerScoreboard.updateTeamWaypoints`)
+
 ### Config layer (`GlowConfigManager`)
 
 - `loadFromWorld(server)`: resets to defaults **and bumps `version`** on missing OR corrupt config — no cross-world leakage, and entities that already cached the old state always notice the fallback
 - `setEnabled(boolean)`: idempotent — no-op if already in the requested state (avoids spurious version bumps + full-server resyncs)
 - `save()`: returns `boolean`; temp file + `ATOMIC_MOVE` with non-atomic fallback (`AtomicMoveNotSupportedException`); commands surface save failures to the admin
 - `hasEnabledTeams()`: zero-allocation fast path (unlike `getEnabledTeams()`, which builds an unmodifiable view)
+- Feature switches (`locatorBarTeammatesOnly`, `nonPlayerGlow`) with **idempotent setters** that bump `version` only on actual change
+- Disk schema versioning: `config_version` `[major, minor]` array; legacy configs (field absent → `null`) are migrated to `[1, 0]` on load, **before** `version++`
 
 ## Stonecutter — Version Management
 
@@ -117,7 +129,7 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 
 | API | 26.1 | 26.2 |
 |---|---|---|
-| Permission check | `Commands.LEVEL_GAMEMASTERS.check(permissions())` | Same |
+| Permission check | `PermissionPredicates.require(...)` (Fabric `permission.v1`) | Same |
 | Scoreboard access | `entity.level().getScoreboard()` | Same |
 | Identifier factory | `Identifier.fromNamespaceAndPath()` | Same |
 
@@ -128,8 +140,8 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a 
 ```
 
 Output JARs:
-- `versions/26.2/build/libs/glow-my-teammates-1.0.3+26.2.jar`
-- `versions/26.1/build/libs/glow-my-teammates-1.0.3+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.1.0+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.1.0+26.1.jar`
 
 ## Config
 
@@ -138,7 +150,12 @@ Per-world JSON at `<world>/glow-my-teammates.json`:
 ```json
 {
   "enabled": true,
-  "teams": ["red", "blue"]
+  "teams": ["red", "blue"],
+  "config": {
+    "locator_bar_teammates_only": false,
+    "non_player_glow": false
+  },
+  "config_version": [1, 0]
 }
 ```
 
@@ -147,22 +164,25 @@ Per-world JSON at `<world>/glow-my-teammates.json`:
 ```
 /teamglow on|off|status
 /teamglow team add|remove|list <team>
+/teamglow config list
+/teamglow config locator_bar_teammates_only <true|false>
+/teamglow config non_player_glow <true|false>
 ```
 
-OP level 2 required for on/off/add/remove.
+All commands are backed by `glow-my-teammates:command/*` permission nodes (Fabric API `permission.v1`, LuckPerms-compatible); without a permission mod they fall back to vanilla OP checks (OP 2 for on/off/team add/remove/config, none for status/list).
 
-## Roadmap — `future-plan` branch
+## Roadmap — all implemented (v1.1.0)
 
-Planned features are developed on the **`future-plan`** branch (feasibility analysis in the project docs):
+All six planned features have been implemented on the **`future-plan`** branch in the order 3 → 5 → 6 → 4 → 2 → 1 (feasibility analysis in the project docs):
 
-1. **Locator bar shows teammates only** — server-side filter on `WaypointTransmitter.makeWaypointConnectionWith` (interface method implemented in `LivingEntity`, returns `Optional<Connection>`, needs MixinExtras `@ModifyReturnValue`). Only feature requiring Stonecutter version gates (`LocatorBarRenderer` vs `LocatorBar`).
-2. **Non-player entity glow** — drop the `instanceof Player` guards in `ServerEntityMixin` + widen `getGlowingTeam(Entity)`; requires the `non_player_glow` config switch first (mob-dense farms pay per-dirty-packet overhead in `redirectSendData`).
-3. **Permission nodes** — Fabric API `permission.v1` (`PermissionPredicates.require`); note `PermissionLevel` is the **Mojang** enum `net.minecraft.server.permissions.PermissionLevel`, not a Fabric class.
-4. **Server-side translations** — NucleoidMC/Server-Translations; lang files in `data/<modid>/lang/`; player language via `serverPlayer.clientInformation().language()`.
-5. **Remove `§` codes** → `Component.translatable().withStyle()` (11 occurrences in `GlowCommand`).
-6. **Unified config sub-command + `config_version`** — `[major, minor]` schema array; coexists with the runtime `version` cache counter (migration runs after parse, before `version++`).
+1. **Permission nodes** — Fabric API `permission.v1` (`PermissionPredicates.require`); `PermissionLevel` is the **Mojang** enum `net.minecraft.server.permissions.PermissionLevel`, not a Fabric class.
+2. **Remove `§` codes** → `Component.translatable().withStyle()`.
+3. **Unified config sub-command + `config_version`** — `[major, minor]` schema array; coexists with the runtime `version` cache counter (migration runs after parse, before `version++`).
+4. **Server-side translations** — NucleoidMC/Server-Translations; lang files in `data/<modid>/lang/`; the `server-translations-api` version is per-MC-version in `versions/*/gradle.properties` (`3.0.3+26.1` / `3.1.0+26.2`) and bundled via `implementation include(...)`.
+5. **Non-player entity glow** — the `instanceof Player` guards in `ServerEntityMixin` became `!(entity instanceof Player) && !isNonPlayerGlow()`; `getGlowingTeam(Entity)`; gated by the `non_player_glow` switch.
+6. **Locator bar shows teammates only** — `LivingEntityMixin` with MixinExtras `@ModifyReturnValue` on `WaypointTransmitter.makeWaypointConnectionWith`. Note: turned out to need **no** Stonecutter version gates — the interface is identical in 26.1/26.2.
 
-Suggested order: **3 → 5 → 6 → 4 → 2 → 1** (config switches must precede feature 2).
+Future work happens on the `future-plan` branch, committing per feature and merging back to `main` when complete.
 
 ## Rules for Contributors
 
