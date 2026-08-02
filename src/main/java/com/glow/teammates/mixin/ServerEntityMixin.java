@@ -1,5 +1,6 @@
 package com.glow.teammates.mixin;
 
+import com.glow.teammates.GlowConstants;
 import com.glow.teammates.config.GlowConfigManager;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
@@ -228,7 +229,7 @@ public abstract class ServerEntityMixin {
 
         EntityDataAccessor<Byte> flagsAccessor = EntityAccessor.getSharedFlagsId();
         byte flags = entity.getEntityData().get(flagsAccessor);
-        byte glowFlags = (byte) (flags | EntityAccessor.FLAG_GLOWING);
+        byte glowFlags = (byte) (flags | GlowConstants.FLAG_GLOWING);
 
         List<SynchedEntityData.DataValue<?>> items = List.of(
                 new SynchedEntityData.DataValue<>(
@@ -351,7 +352,7 @@ public abstract class ServerEntityMixin {
         boolean vanillaGlow = entity instanceof LivingEntity living
                 ? living.isCurrentlyGlowing()
                 : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
-                        & EntityAccessor.FLAG_GLOWING) != 0;
+                        & GlowConstants.FLAG_GLOWING) != 0;
         if (vanillaGlow) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
@@ -421,7 +422,7 @@ public abstract class ServerEntityMixin {
         for (SynchedEntityData.DataValue<?> item : packet.packedItems()) {
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 foundFlag = true;
-                flagsMatch = ((current & EntityAccessor.FLAG_GLOWING) != 0) == shouldGlow;
+                flagsMatch = ((current & GlowConstants.FLAG_GLOWING) != 0) == shouldGlow;
                 break;
             }
         }
@@ -439,8 +440,8 @@ public abstract class ServerEntityMixin {
             SynchedEntityData.DataValue<?> item = items.get(i);
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 byte newValue = (byte) (shouldGlow
-                        ? (current | EntityAccessor.FLAG_GLOWING)
-                        : (current & EntityAccessor.GLOW_CLEAR_MASK));
+                        ? (current | GlowConstants.FLAG_GLOWING)
+                        : (current & GlowConstants.GLOW_CLEAR_MASK));
                 // item.id() == sharedFlagsId was verified above — reuse
                 // it instead of hardcoding the flags slot id (0).
                 SynchedEntityData.DataValue rawItem =
@@ -465,7 +466,7 @@ public abstract class ServerEntityMixin {
                 cachedGlowPacket = new ClientboundSetEntityDataPacket(packet.id(),
                         List.of(new SynchedEntityData.DataValue<>(
                                 sharedFlagsId, EntityDataSerializers.BYTE,
-                                (byte) (current | EntityAccessor.FLAG_GLOWING))));
+                                (byte) (current | GlowConstants.FLAG_GLOWING))));
             }
             return cachedGlowPacket;
         }

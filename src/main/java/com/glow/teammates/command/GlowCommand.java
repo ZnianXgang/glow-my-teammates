@@ -1,5 +1,6 @@
 package com.glow.teammates.command;
 
+import com.glow.teammates.GlowConstants;
 import com.glow.teammates.config.GlowConfigManager;
 import com.glow.teammates.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
@@ -425,7 +426,7 @@ public final class GlowCommand {
                 boolean vanillaGlow = entity instanceof LivingEntity living
                         ? living.isCurrentlyGlowing()
                         : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
-                                & EntityAccessor.FLAG_GLOWING) != 0;
+                                & GlowConstants.FLAG_GLOWING) != 0;
                 if (vanillaGlow) {
                     continue; // Vanilla glow — the mod never overlaid these.
                 }
@@ -443,9 +444,9 @@ public final class GlowCommand {
                         new SynchedEntityData.DataValue<>(
                                 EntityAccessor.getSharedFlagsId().id(),
                                 EntityDataSerializers.BYTE,
-                                // EntityAccessor.GLOW_CLEAR_MASK clears the glow
+                                // GlowConstants.GLOW_CLEAR_MASK clears the glow
                                 // bit, keeping every other shared flag intact.
-                                (byte) (flags & EntityAccessor.GLOW_CLEAR_MASK)));
+                                (byte) (flags & GlowConstants.GLOW_CLEAR_MASK)));
                 ClientboundSetEntityDataPacket packet =
                         new ClientboundSetEntityDataPacket(entity.getId(), items);
                 for (ServerPlayer player : tracking) {
