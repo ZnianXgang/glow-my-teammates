@@ -87,7 +87,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
 
 - **Vanilla glowing is untouched.** Spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work — the mod only adds or clears its own bit on top.
 - **`/team remove <team>` cleans up immediately.** When a team is deleted, viewers stop seeing the glow right away (no stale glow until re-login).
-- **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations mean even command feedback shows readable text on vanilla clients.
+- **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations (English & Simplified Chinese) mean even command feedback shows readable text on vanilla clients.
 - **No self-glow in third person.** A glowing player does not see their own glow in F5 view — only teammates do. Deliberate: self always receives the no-glow variant.
 
 ## Building from source

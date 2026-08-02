@@ -1,0 +1,18 @@
+{
+  "glow.teammates.enabled": "已启用队伍发光",
+  "glow.teammates.disabled": "已禁用队伍发光",
+  "glow.teammates.status.header": "队伍发光：%1$s",
+  "glow.teammates.status.enabled": "已启用",
+  "glow.teammates.status.disabled": "已禁用",
+  "glow.teammates.no_teams": "没有队伍启用发光",
+  "glow.teammates.no_permission": "你没有使用此命令的权限",
+  "glow.teammates.teams_list": "已启用发光的队伍：%1$s",
+  "glow.teammates.team_already": "队伍“%1$s”已经启用了发光",
+  "glow.teammates.team_added": "已为队伍“%1$s”启用发光",
+  "glow.teammates.team_not_enabled": "队伍“%1$s”没有启用发光",
+  "glow.teammates.team_removed": "已为队伍“%1$s”禁用发光",
+  "glow.teammates.team_not_found": "队伍“%1$s”尚不存在。创建该队伍后发光即可生效",
+  "glow.teammates.save_failed": "无法保存配置。此更改将在重启后丢失",
+  "glow.teammates.config.list": "当前配置：%1$s",
+  "glow.teammates.config.set": "已将%1$s设为%2$s"
+}

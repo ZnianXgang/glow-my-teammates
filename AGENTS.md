@@ -20,7 +20,7 @@ versions/<mc>/gradle.properties     Per-version: minecraft/loader/fabric-api/ser
 src/main/resources/
   fabric.mod.json                   environment: "*" (loads in singleplayer/LAN too)
   glow-my-teammates.mixins.json     Registers the 4 mixins below
-  data/glow-my-teammates/lang/      en_us.json — translated server-side (Server-Translations API)
+  data/glow-my-teammates/lang/      en_us.json + zh_cn.json — translated server-side (Server-Translations API)
 src/main/java/com/glow/teammates/
   GlowMyTeammates.java              ModInitializer: hooks SERVER_STARTED + command registration
   config/GlowConfigManager.java     Singleton holding all runtime state + JSON persistence

@@ -206,7 +206,8 @@ public final class GlowCommand {
     private static int showStatus(CommandSourceStack source) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         Component state = Component.translatable(
-                config.isEnabled() ? "glow.teammates.enabled" : "glow.teammates.disabled")
+                config.isEnabled() ? "glow.teammates.status.enabled"
+                        : "glow.teammates.status.disabled")
                 .withStyle(config.isEnabled() ? ChatFormatting.GREEN : ChatFormatting.RED);
 
         source.sendSuccess(
@@ -228,8 +229,10 @@ public final class GlowCommand {
             return 0;
         }
 
+        // getPlayerTeam (teamsByName) checks whether the TEAM exists —
+        // getPlayersTeam (teamsByPlayer) would look up a member by that name.
         boolean exists = source.getServer().getScoreboard()
-                .getPlayersTeam(teamName) != null;
+                .getPlayerTeam(teamName) != null;
         config.addTeam(teamName);
         if (!config.save()) {
             config.removeTeam(teamName); // Roll back the in-memory state.
