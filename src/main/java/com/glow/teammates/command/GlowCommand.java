@@ -149,14 +149,14 @@ public final class GlowCommand {
         config.setEnabled(enabled);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("Failed to save config — this change will be lost on restart.")
+                    Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
 
-        String state = enabled ? "enabled" : "disabled";
         source.sendSuccess(
-                () -> Component.literal("Team glow " + state + ".")
+                () -> Component.translatable(
+                        enabled ? "glow.teammates.enabled" : "glow.teammates.disabled")
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
@@ -164,26 +164,27 @@ public final class GlowCommand {
 
     private static int showStatus(CommandSourceStack source) {
         GlowConfigManager config = GlowConfigManager.getInstance();
-        Component state = Component.literal(config.isEnabled() ? "enabled" : "disabled")
+        Component state = Component.translatable(
+                config.isEnabled() ? "glow.teammates.enabled" : "glow.teammates.disabled")
                 .withStyle(config.isEnabled() ? ChatFormatting.GREEN : ChatFormatting.RED);
         Set<String> teams = config.getEnabledTeams();
 
         source.sendSuccess(
-                () -> Component.literal("Team glow: ").withStyle(ChatFormatting.GOLD)
-                        .append(state),
+                () -> Component.translatable("glow.teammates.status.header", state)
+                        .withStyle(ChatFormatting.GOLD),
                 false);
 
         if (teams.isEmpty()) {
             source.sendSuccess(
-                    () -> Component.literal("No teams have glow enabled.")
+                    () -> Component.translatable("glow.teammates.no_teams")
                             .withStyle(ChatFormatting.GRAY),
                     false);
         } else {
             source.sendSuccess(
-                    () -> Component.literal("Enabled teams: ")
-                            .withStyle(ChatFormatting.YELLOW)
-                            .append(Component.literal(String.join(", ", teams))
-                                    .withStyle(ChatFormatting.WHITE)),
+                    () -> Component.translatable("glow.teammates.teams_list",
+                            Component.literal(String.join(", ", teams))
+                                    .withStyle(ChatFormatting.WHITE))
+                            .withStyle(ChatFormatting.YELLOW),
                     false);
         }
         return 1;
@@ -194,7 +195,7 @@ public final class GlowCommand {
 
         if (config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.literal("Team '" + teamName + "' already has glow enabled.")
+                    Component.translatable("glow.teammates.team_already", teamName)
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -202,13 +203,13 @@ public final class GlowCommand {
         config.addTeam(teamName);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("Failed to save config — this change will be lost on restart.")
+                    Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         source.sendSuccess(
-                () -> Component.literal("Team '" + teamName + "' now has glow enabled.")
+                () -> Component.translatable("glow.teammates.team_added", teamName)
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
@@ -219,7 +220,7 @@ public final class GlowCommand {
 
         if (!config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.literal("Team '" + teamName + "' does not have glow enabled.")
+                    Component.translatable("glow.teammates.team_not_enabled", teamName)
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -227,13 +228,13 @@ public final class GlowCommand {
         config.removeTeam(teamName);
         if (!config.save()) {
             source.sendFailure(
-                    Component.literal("Failed to save config — this change will be lost on restart.")
+                    Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
 
         source.sendSuccess(
-                () -> Component.literal("Team '" + teamName + "' glow disabled.")
+                () -> Component.translatable("glow.teammates.team_removed", teamName)
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
@@ -244,15 +245,15 @@ public final class GlowCommand {
 
         if (teams.isEmpty()) {
             source.sendSuccess(
-                    () -> Component.literal("No teams have glow enabled.")
+                    () -> Component.translatable("glow.teammates.no_teams")
                             .withStyle(ChatFormatting.GRAY),
                     false);
         } else {
             source.sendSuccess(
-                    () -> Component.literal("Enabled teams: ")
-                            .withStyle(ChatFormatting.YELLOW)
-                            .append(Component.literal(String.join(", ", teams))
-                                    .withStyle(ChatFormatting.WHITE)),
+                    () -> Component.translatable("glow.teammates.teams_list",
+                            Component.literal(String.join(", ", teams))
+                                    .withStyle(ChatFormatting.WHITE))
+                            .withStyle(ChatFormatting.YELLOW),
                     false);
         }
         return 1;
@@ -263,8 +264,9 @@ public final class GlowCommand {
         String info = "\n  locator_bar_teammates_only = " + config.isLocatorBarTeammatesOnly()
                 + "\n  non_player_glow = " + config.isNonPlayerGlow();
         source.sendSuccess(
-                () -> Component.literal("Config:").withStyle(ChatFormatting.YELLOW)
-                        .append(Component.literal(info).withStyle(ChatFormatting.WHITE)),
+                () -> Component.translatable("glow.teammates.config.list",
+                        Component.literal(info).withStyle(ChatFormatting.WHITE))
+                        .withStyle(ChatFormatting.YELLOW),
                 false);
         return 1;
     }
@@ -274,12 +276,13 @@ public final class GlowCommand {
         setter.accept(value);
         if (!GlowConfigManager.getInstance().save()) {
             source.sendFailure(
-                    Component.literal("Failed to save config — this change will be lost on restart.")
+                    Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
         source.sendSuccess(
-                () -> Component.literal(feature + " set to " + value + ".")
+                () -> Component.translatable("glow.teammates.config.set",
+                        feature, String.valueOf(value))
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;

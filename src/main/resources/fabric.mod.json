@@ -12,7 +12,7 @@
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/glow-my-teammates/icon.png",
-	"environment": "server",
+	"environment": "*",
 	"entrypoints": {
 		"main": [
 			"com.glow.teammates.GlowMyTeammates"
