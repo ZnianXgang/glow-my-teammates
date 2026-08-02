@@ -35,8 +35,8 @@ public abstract class LivingEntityMixin {
             Optional<WaypointTransmitter.Connection> original, ServerPlayer receiver) {
 
         GlowConfigManager config = GlowConfigManager.getInstance();
-        if (!config.isLocatorBarHideOtherGlowingTeams()) {
-            return original; // Feature off — vanilla behavior.
+        if (!config.isEnabled() || !config.isLocatorBarHideOtherGlowingTeams()) {
+            return original; // Mod off or feature off — vanilla behavior.
         }
 
         // A viewer who is not in a glow-enabled team (teamless or in a

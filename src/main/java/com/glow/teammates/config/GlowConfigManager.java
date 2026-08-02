@@ -156,6 +156,7 @@ public class GlowConfigManager {
             GlowMyTeammates.LOGGER.warn("Cannot save config: no world path set");
             return false;
         }
+        Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
         try {
             Files.createDirectories(configPath.getParent());
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
@@ -164,7 +165,6 @@ public class GlowConfigManager {
             subConfig.locatorBarHideOtherGlowingTeams = this.locatorBarHideOtherGlowingTeams;
             subConfig.nonPlayerGlow = this.nonPlayerGlow;
             data.config = subConfig;
-            Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
             try (Writer writer = new OutputStreamWriter(
                     Files.newOutputStream(tmpPath), StandardCharsets.UTF_8)) {
                 GSON.toJson(data, writer);
@@ -175,6 +175,14 @@ public class GlowConfigManager {
         } catch (IOException e) {
             GlowMyTeammates.LOGGER.error("Failed to save config", e);
             return false;
+        } finally {
+            // Best-effort cleanup: a failed save may leave the temp file behind
+            // (a successful save already moved it away, so this is a no-op).
+            try {
+                Files.deleteIfExists(tmpPath);
+            } catch (IOException ignored) {
+                // Cleanup only — never mask the real failure.
+            }
         }
     }
 
@@ -223,7 +231,7 @@ public class GlowConfigManager {
 
     /**
      * Whether any team currently has glow enabled. Zero-allocation fast path
-     * (unlike {@link #getEnabledTeams()}, which builds an unmodifiable view)
+     * (unlike {@link #getEnabledTeams()}, which builds a defensive snapshot)
      * used by the per-packet redirect path to skip lookups when no team is
      * configured.
      */
@@ -304,7 +312,10 @@ public class GlowConfigManager {
     }
 
     public Set<String> getEnabledTeams() {
-        return Collections.unmodifiableSet(enabledTeams);
+        // Return a snapshot, not a live view: other mods (e.g. permission
+        // plugins reading from async threads) must never hit a CME while
+        // iterating the server-thread-owned backing set.
+        return Collections.unmodifiableSet(new LinkedHashSet<>(enabledTeams));
     }
 
     @SuppressWarnings("unused")

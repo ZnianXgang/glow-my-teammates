@@ -392,47 +392,52 @@ public abstract class ServerEntityMixin {
     private ClientboundSetEntityDataPacket modifyGlowFlag(
             ClientboundSetEntityDataPacket packet, boolean shouldGlow) {
 
+        int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
+
+        // Read-only pre-check: when the packet already carries the requested
+        // glow state, reuse the original packet without allocating a copied
+        // item list — this is the common case, since flags rarely change.
+        boolean foundFlag = false;
+        boolean flagsMatch = true;
+        for (SynchedEntityData.DataValue<?> item : packet.packedItems()) {
+            if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
+                foundFlag = true;
+                flagsMatch = ((current & FLAG_GLOWING) != 0) == shouldGlow;
+                break;
+            }
+        }
+        if (foundFlag && flagsMatch) {
+            return packet;
+        }
+        if (!foundFlag && !shouldGlow) {
+            return packet; // No flags entry to clear — the original is identical.
+        }
+
+        // The glow bit must change — copy the items and modify in place.
         List<SynchedEntityData.DataValue<?>> items =
                 new ArrayList<>(packet.packedItems());
-        int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
-        boolean foundFlag = false;
-        boolean changed = false;
-
         for (int i = 0; i < items.size(); i++) {
             SynchedEntityData.DataValue<?> item = items.get(i);
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 byte newValue = (byte) (shouldGlow
                         ? (current | FLAG_GLOWING) : (current & 0xBF));
-                if (newValue != current) {
-                    // item.id() == sharedFlagsId was verified above — reuse
-                    // it instead of hardcoding the flags slot id (0).
-                    SynchedEntityData.DataValue rawItem =
-                            new SynchedEntityData.DataValue(
-                                    item.id(), item.serializer(), newValue);
-                    items.set(i, rawItem);
-                    changed = true;
-                }
-                foundFlag = true;
+                // item.id() == sharedFlagsId was verified above — reuse
+                // it instead of hardcoding the flags slot id (0).
+                SynchedEntityData.DataValue rawItem =
+                        new SynchedEntityData.DataValue(
+                                item.id(), item.serializer(), newValue);
+                items.set(i, rawItem);
                 break;
             }
         }
-
         if (!foundFlag) {
-            if (!shouldGlow) {
-                // No flags entry to clear — the original packet is identical.
-                return packet;
-            }
+            // shouldGlow is true here — append the entry from the entity's
+            // current flags (a bare 0x40 would wipe the other flag bits).
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
             items.add(new SynchedEntityData.DataValue<>(
                     sharedFlagsId, EntityDataSerializers.BYTE,
                     (byte) (current | FLAG_GLOWING)));
-            changed = true;
-        }
-
-        if (!changed) {
-            // Flags already in the desired state — reuse the original packet.
-            return packet;
         }
         return new ClientboundSetEntityDataPacket(packet.id(), items);
     }

@@ -186,6 +186,8 @@ public final class GlowCommand {
     private static int setEnabled(CommandSourceStack source, boolean enabled) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         boolean oldValue = config.isEnabled();
+        boolean waypointsAffected = config.isLocatorBarHideOtherGlowingTeams()
+                && oldValue != enabled;
         config.setEnabled(enabled);
         if (!config.save()) {
             config.setEnabled(oldValue); // Roll back the in-memory state.
@@ -193,6 +195,12 @@ public final class GlowCommand {
                     Component.translatable("glow.teammates.save_failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
+        }
+        // The locator-bar filter also keys off isEnabled(), so rebuild the
+        // connections when the mod is turned on or off — the filter must
+        // apply/lift immediately, not on the next team change.
+        if (waypointsAffected) {
+            rebuildWaypointConnections(source.getServer());
         }
 
         source.sendSuccess(
@@ -361,9 +369,14 @@ public final class GlowCommand {
 
     /**
      * Rebuild every locator-bar waypoint connection so the
-     * {@code locator_bar_hide_other_glowing_teams} filter takes effect immediately.
-     * Mirrors what vanilla {@code ServerScoreboard.updateTeamWaypoints} does
-     * on team membership changes.
+     * {@code locator_bar_hide_other_glowing_teams} filter takes effect
+     * immediately. Mirrors what vanilla {@code ServerScoreboard.updateTeamWaypoints}
+     * does on team membership changes.
+     *
+     * <p>Only player transmitters are rebuilt. Non-player entities do not
+     * transmit waypoints by default ({@code WAYPOINT_TRANSMIT_RANGE} defaults
+     * to 0), so this is sufficient unless a third-party mod raises that
+     * attribute.
      */
     private static void rebuildWaypointConnections(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
