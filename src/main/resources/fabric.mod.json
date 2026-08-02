@@ -3,7 +3,7 @@
 	"id": "glow-my-teammates",
 	"version": "${version}",
 	"name": "Glow My Teammates",
-	"description": "Teammates glow for each other. Server-side only, uses vanilla /team system.",
+	"description": "Teammates glow for each other. Server-side only (no client mod needed); works on dedicated servers, singleplayer and LAN via the vanilla /team system.",
 	"authors": [
 		"ZnianXgang"
 	],
