@@ -85,7 +85,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("add")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team/add"),
+                                "glow-my-teammates", "command.team.add"),
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
@@ -110,7 +110,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("remove")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team/remove"),
+                                "glow-my-teammates", "command.team.remove"),
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
@@ -129,7 +129,7 @@ public final class GlowCommand {
         teamNode.then(Commands.literal("list")
                 .requires(PermissionPredicates.require(
                         Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team/list"),
+                                "glow-my-teammates", "command.team.list"),
                         PermissionLevel.ALL))
                 .executes(ctx -> listTeams(ctx.getSource())));
 
@@ -170,7 +170,7 @@ public final class GlowCommand {
         // Default (no argument) → show status. The permission check lives in
         // the executor (not on the root node) because Brigadier ANDs a parent
         // node's requires() into every child — a status restriction on the
-        // root would wrongly gate the on/off/team/config subcommands too.
+        // root would wrongly gate the on/off/team.config subcommands too.
         root.executes(ctx -> {
             if (!STATUS_REQUIREMENT.test(ctx.getSource())) {
                 ctx.getSource().sendFailure(
