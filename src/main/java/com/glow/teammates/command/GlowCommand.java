@@ -3,9 +3,12 @@ package com.glow.teammates.command;
 import com.glow.teammates.config.GlowConfigManager;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.permissions.PermissionLevel;
 
 import java.util.Set;
 
@@ -18,16 +21,26 @@ public final class GlowCommand {
 
         // /teamglow on
         root.then(Commands.literal("on")
-                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/on"),
+                        PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> setEnabled(ctx.getSource(), true)));
 
         // /teamglow off
         root.then(Commands.literal("off")
-                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/off"),
+                        PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> setEnabled(ctx.getSource(), false)));
 
         // /teamglow status
         root.then(Commands.literal("status")
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/status"),
+                        PermissionLevel.ALL))
                 .executes(ctx -> showStatus(ctx.getSource())));
 
         // /teamglow team ...
@@ -35,7 +48,10 @@ public final class GlowCommand {
 
         // /teamglow team add <team>
         teamNode.then(Commands.literal("add")
-                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/team/add"),
+                        PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest all existing teams from scoreboard
@@ -57,7 +73,10 @@ public final class GlowCommand {
 
         // /teamglow team remove <team>
         teamNode.then(Commands.literal("remove")
-                .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/team/remove"),
+                        PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest only enabled teams
@@ -73,12 +92,20 @@ public final class GlowCommand {
 
         // /teamglow team list
         teamNode.then(Commands.literal("list")
+                .requires(PermissionPredicates.require(
+                        Identifier.fromNamespaceAndPath(
+                                "glow-my-teammates", "command/team/list"),
+                        PermissionLevel.ALL))
                 .executes(ctx -> listTeams(ctx.getSource())));
 
         root.then(teamNode);
 
-        // Default (no argument) → show status
-        root.executes(ctx -> showStatus(ctx.getSource()));
+        // Default (no argument) → show status (same permission as /teamglow status)
+        root.requires(PermissionPredicates.require(
+                Identifier.fromNamespaceAndPath(
+                        "glow-my-teammates", "command/status"),
+                PermissionLevel.ALL))
+                .executes(ctx -> showStatus(ctx.getSource()));
 
         dispatcher.register(root);
     }
