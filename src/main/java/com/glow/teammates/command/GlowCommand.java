@@ -26,11 +26,11 @@ public final class GlowCommand {
                 .requires(s -> Commands.LEVEL_GAMEMASTERS.check(s.permissions()))
                 .executes(ctx -> setEnabled(ctx.getSource(), false)));
 
-        // /glowteammates status
+        // /teamglow status
         root.then(Commands.literal("status")
                 .executes(ctx -> showStatus(ctx.getSource())));
 
-        // /glowteammates team ...
+        // /teamglow team ...
         var teamNode = Commands.literal("team");
 
         // /teamglow team add <team>
@@ -71,7 +71,7 @@ public final class GlowCommand {
                             return removeTeam(ctx.getSource(), team);
                         })));
 
-        // /glowteammates team list
+        // /teamglow team list
         teamNode.then(Commands.literal("list")
                 .executes(ctx -> listTeams(ctx.getSource())));
 
@@ -86,7 +86,11 @@ public final class GlowCommand {
     private static int setEnabled(CommandSourceStack source, boolean enabled) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         config.setEnabled(enabled);
-        config.save();
+        if (!config.save()) {
+            source.sendFailure(
+                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+            return 0;
+        }
 
         String state = enabled ? "enabled" : "disabled";
         source.sendSuccess(
@@ -124,7 +128,11 @@ public final class GlowCommand {
         }
 
         config.addTeam(teamName);
-        config.save();
+        if (!config.save()) {
+            source.sendFailure(
+                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+            return 0;
+        }
 
         source.sendSuccess(
                 () -> Component.literal("§aTeam '" + teamName + "' now has glow enabled."),
@@ -142,7 +150,11 @@ public final class GlowCommand {
         }
 
         config.removeTeam(teamName);
-        config.save();
+        if (!config.save()) {
+            source.sendFailure(
+                    Component.literal("§cFailed to save config — this change will be lost on restart."));
+            return 0;
+        }
 
         source.sendSuccess(
                 () -> Component.literal("§aTeam '" + teamName + "' glow disabled."),

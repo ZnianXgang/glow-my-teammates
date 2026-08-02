@@ -8,6 +8,7 @@ import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -76,21 +77,34 @@ public class GlowConfigManager {
                 GlowMyTeammates.LOGGER.error("Failed to load config, using defaults", e);
                 this.enabled = true;
                 this.enabledTeams.clear();
+                // Bump the version so entities that already cached the old
+                // config state (cachedConfigVersion == old version) notice
+                // the fallback to defaults and force a glow resync.
+                this.version++;
             }
         } else {
             GlowMyTeammates.LOGGER.info(
                     "No config file found at {}, creating default", configPath);
+            // Reset to defaults instead of inheriting the previous world's
+            // config (a stale singleton across server restarts would
+            // otherwise leak teams into this new world's config file).
+            this.enabled = true;
+            this.enabledTeams.clear();
+            this.version++;
             save();
         }
     }
 
     /**
      * Save current config to file.
+     *
+     * @return {@code true} if the config was persisted successfully,
+     *         {@code false} if the file could not be written (logged).
      */
-    public void save() {
+    public boolean save() {
         if (configPath == null) {
             GlowMyTeammates.LOGGER.warn("Cannot save config: no world path set");
-            return;
+            return false;
         }
         try {
             Files.createDirectories(configPath.getParent());
@@ -100,11 +114,20 @@ public class GlowConfigManager {
                     Files.newOutputStream(tmpPath), StandardCharsets.UTF_8)) {
                 GSON.toJson(data, writer);
             }
-            Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE);
+            try {
+                Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                // Fall back to a non-atomic move on filesystems that cannot
+                // atomically replace an existing file (e.g. some network/FAT
+                // volumes) instead of silently losing the save.
+                Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING);
+            }
             GlowMyTeammates.LOGGER.info("Saved config to {}", configPath);
+            return true;
         } catch (IOException e) {
             GlowMyTeammates.LOGGER.error("Failed to save config", e);
+            return false;
         }
     }
 
@@ -112,7 +135,20 @@ public class GlowConfigManager {
         return enabled;
     }
 
+    /**
+     * Whether any team currently has glow enabled. Zero-allocation fast path
+     * (unlike {@link #getEnabledTeams()}, which builds an unmodifiable view)
+     * used by the per-packet redirect path to skip lookups when no team is
+     * configured.
+     */
+    public boolean hasEnabledTeams() {
+        return !enabledTeams.isEmpty();
+    }
+
     public void setEnabled(boolean enabled) {
+        if (this.enabled == enabled) {
+            return; // Idempotent — avoid a spurious version bump + full-server resync.
+        }
         this.enabled = enabled;
         this.version++;
     }

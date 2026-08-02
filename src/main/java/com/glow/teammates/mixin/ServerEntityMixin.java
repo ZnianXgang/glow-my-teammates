@@ -9,7 +9,6 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -59,6 +58,13 @@ public abstract class ServerEntityMixin {
      */
     @Unique
     private long cachedSyncEpoch;
+
+    /**
+     * Bit in the entity shared flags ({@code Entity.DATA_SHARED_FLAGS_ID})
+     * that controls glowing: {@code 1 << Entity.FLAG_GLOWING}.
+     */
+    @Unique
+    private static final byte FLAG_GLOWING = 0x40;
 
     // ========== Smart force: only when team membership or config changes ==========
 
@@ -110,6 +116,22 @@ public abstract class ServerEntityMixin {
         String currentTeamName = glowingTeam != null
                 ? glowingTeam.getName() : null;
 
+        // Optimization: entity was never in a glowing team (neither now nor
+        // at last sync) — no viewer-side team change or config change can
+        // make it glow, so the whole broadcast is skippable. If it later
+        // joins a glowing team, addPlayerToTeam bumps the syncEpoch and the
+        // normal path below re-engages, so nothing is missed.
+        if (currentTeamName == null && cachedTeamName == null) {
+            // Catch the caches up too — otherwise cachedConfigVersion /
+            // cachedSyncEpoch stay forever behind and every later epoch or
+            // config bump would re-run the scoreboard lookups above every
+            // tick, permanently.
+            cachedTeamName = null;
+            cachedConfigVersion = currentConfigVersion;
+            cachedSyncEpoch = currentSyncEpoch;
+            return null;
+        }
+
         // Detect transitions in BOTH directions:
         // null → "red" = player joined a glowing team (force glow packet)
         // "red" → null = player left or mod disabled (force cleanup packet)
@@ -134,7 +156,7 @@ public abstract class ServerEntityMixin {
         EntityDataAccessor<Byte> accessor = EntityAccessor.getSharedFlagsId();
         byte flags = entity.getEntityData().get(accessor);
         return List.of(new SynchedEntityData.DataValue<>(
-                0, EntityDataSerializers.BYTE, flags));
+                accessor.id(), EntityDataSerializers.BYTE, flags));
     }
 
     // ========== Initial sync: first sighting by a new tracker ==========
@@ -153,7 +175,11 @@ public abstract class ServerEntityMixin {
         if (!(entity instanceof Player entityPlayer)) {
             return;
         }
-        if (!GlowConfigManager.getInstance().isEnabled()) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        if (!config.isEnabled()) {
+            return;
+        }
+        if (!config.hasEnabledTeams()) {
             return;
         }
 
@@ -175,13 +201,13 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        byte flags = entity.getEntityData().get(
-                EntityAccessor.getSharedFlagsId());
-        byte glowFlags = (byte) (flags | 0x40);
+        EntityDataAccessor<Byte> flagsAccessor = EntityAccessor.getSharedFlagsId();
+        byte flags = entity.getEntityData().get(flagsAccessor);
+        byte glowFlags = (byte) (flags | FLAG_GLOWING);
 
         List<SynchedEntityData.DataValue<?>> items = List.of(
                 new SynchedEntityData.DataValue<>(
-                        0, EntityDataSerializers.BYTE, glowFlags));
+                        flagsAccessor.id(), EntityDataSerializers.BYTE, glowFlags));
         if (viewer.connection != null) {
             viewer.connection.send(
                     new ClientboundSetEntityDataPacket(entity.getId(), items));
@@ -243,13 +269,25 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        if (!GlowConfigManager.getInstance().isEnabled()) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        if (!config.isEnabled()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
 
+        // No team has glow enabled — nothing to customize for any viewer,
+        // so skip the per-packet scoreboard/effect lookups entirely.
+        if (!config.hasEnabledTeams()) {
+            sync.sendToTrackingPlayersAndSelf(packet);
+            return;
+        }
+
+        // Skip when vanilla glowing is active (spectral arrows, potions, or
+        // setGlowingTag): isCurrentlyGlowing() on the server equals
+        // hasEffect(GLOWING) || hasGlowingTag (see LivingEntity), which is
+        // exactly what the shared-flags 0x40 bit reflects.
         if (entityPlayer instanceof LivingEntity living
-                && living.hasEffect(MobEffects.GLOWING)) {
+                && living.isCurrentlyGlowing()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
@@ -259,7 +297,7 @@ public abstract class ServerEntityMixin {
         PlayerTeam entityTeamObj = scoreboard.getPlayersTeam(entityName);
 
         // Entity not in a glowing team → no glow customization needed
-        if (entityTeamObj == null || !GlowConfigManager.getInstance().isTeamEnabled(entityTeamObj.getName())) {
+        if (entityTeamObj == null || !config.isTeamEnabled(entityTeamObj.getName())) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
@@ -275,15 +313,17 @@ public abstract class ServerEntityMixin {
         ClientboundSetEntityDataPacket noGlowPacket = modifyGlowFlag(
                 dataPacket, false);
 
+        // Broadcast the no-glow variant to everyone (tracking + self) first,
+        // then overlay the glow variant for teammates only. Netty guarantees
+        // per-connection FIFO, so teammates end up with the glow bit set.
+        // This replaces two filtered passes (one scoreboard lookup per viewer
+        // in each) with a single plain broadcast + one filtered pass — and
+        // the entity itself, which is never part of its own tracking set
+        // (ChunkMap.TrackedEntity.updatePlayer excludes self), is covered by
+        // sendToTrackingPlayersAndSelf, so the former explicit self-send is
+        // unnecessary.
+        sync.sendToTrackingPlayersAndSelf(noGlowPacket);
         sync.sendToTrackingPlayersFiltered(glowPacket, isTeammate);
-        sync.sendToTrackingPlayersFiltered(
-                noGlowPacket, v -> !isTeammate.test(v));
-
-        if (entityPlayer instanceof ServerPlayer serverPlayer) {
-            if (serverPlayer.connection != null) {
-                serverPlayer.connection.send(noGlowPacket);
-            }
-        }
     }
 
     // ========== Packet helper ==========
@@ -303,17 +343,20 @@ public abstract class ServerEntityMixin {
 
         List<SynchedEntityData.DataValue<?>> items =
                 new ArrayList<>(packet.packedItems());
+        int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
         boolean foundFlag = false;
 
         for (int i = 0; i < items.size(); i++) {
             SynchedEntityData.DataValue<?> item = items.get(i);
-            if (item.id() == 0 && item.value() instanceof Byte current) {
+            if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 byte newValue = (byte) (shouldGlow
-                        ? (current | 0x40) : (current & ~0x40));
+                        ? (current | FLAG_GLOWING) : (current & ~FLAG_GLOWING));
                 if (newValue != current) {
+                    // item.id() == sharedFlagsId was verified above — reuse
+                    // it instead of hardcoding the flags slot id (0).
                     SynchedEntityData.DataValue rawItem =
                             new SynchedEntityData.DataValue(
-                                    0, item.serializer(), newValue);
+                                    item.id(), item.serializer(), newValue);
                     items.set(i, rawItem);
                 }
                 foundFlag = true;
@@ -325,7 +368,8 @@ public abstract class ServerEntityMixin {
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
             items.add(new SynchedEntityData.DataValue<>(
-                    0, EntityDataSerializers.BYTE, (byte) (current | 0x40)));
+                    sharedFlagsId, EntityDataSerializers.BYTE,
+                    (byte) (current | FLAG_GLOWING)));
         }
 
         return new ClientboundSetEntityDataPacket(packet.id(), items);
