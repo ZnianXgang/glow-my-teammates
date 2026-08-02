@@ -62,6 +62,8 @@ ServerEntity.sendDirtyEntityData()
 
 The old explicit self-send was deleted: `ChunkMap.TrackedEntity.updatePlayer` excludes the entity from its own tracking set, so `sendToTrackingPlayersAndSelf` already covers self.
 
+**Deliberate behavior**: a glowing player does NOT see their own glow in third-person view — self always receives the no-glow variant and the tracking set excludes self, so only teammates see the glow. Kept this way on purpose.
+
 ### 3.3 Viewer-side team changes (`ScoreboardMixin`)
 
 Three `@Inject`s funnel into one `onTeamChange(PlayerTeam)` which bumps `syncEpoch` **only for glow-enabled teams**:
@@ -119,9 +121,9 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 │   ├── add <team>              command/team/add                 (fallback OP 2)
 │   ├── remove <team>           command/team/remove              (fallback OP 2)
 │   └── list                    command/team/list                (fallback: all)
-└── config
-    ├── list                    command/config                   (fallback OP 2)
-    ├── locator_bar_teammates_only <bool>   same node
+└── config                       command/config                   (fallback OP 2)
+    ├── (no argument → list)     same node
+    ├── locator_bar_hide_other_glowing_teams <bool>   same node
     └── non_player_glow <bool>              same node
 ```
 
@@ -136,6 +138,13 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 - `versions/<mc>/gradle.properties` hold per-version dependency versions; `build.gradle` reads them via `${property(...)}`. The `server-translations-api` version differs per MC (3.0.3+26.1 / 3.1.0+26.2) and is bundled with `implementation include(...)`.
 - Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates — the only cross-version API differences documented (locator-bar client classes) were avoided by the server-side design.
 - Commands: `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
+- **Mixin anchors to re-verify on every MC upgrade** (`defaultRequire: 1` fails loudly if any breaks):
+  - `ServerEntityMixin#smartForcePacket` — `@ModifyVariable` on `sendDirtyEntityData`'s `SynchedEntityData.packDirty()` result (`INVOKE_ASSIGN`, `ordinal = 0`)
+  - `ServerEntityMixin#redirectSendData` — `@Redirect` on `ServerEntity$Synchronizer.sendToTrackingPlayersAndSelf(Packet)`
+  - `ServerEntityMixin#onAddPairing` — `@Inject` TAIL on `ServerEntity.addPairing(ServerPlayer)`
+  - `ScoreboardMixin` — three `@Inject`s with explicit descriptors on `addPlayerToTeam(String, PlayerTeam)`, `removePlayerFromTeam(String, PlayerTeam)`, `removePlayerTeam(PlayerTeam)`
+  - `LivingEntityMixin#filterWaypointByTeam` — MixinExtras `@ModifyReturnValue` on `LivingEntity.makeWaypointConnectionWith(ServerPlayer)`
+  - Dependency assumption: `Scoreboard.removePlayerFromTeam(String)` (single-arg) calls the two-arg overload internally — if vanilla stops doing that, hook the single-arg method too.
 
 ## 8. Rules that will bite you
 

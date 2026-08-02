@@ -3,11 +3,13 @@
   "glow.teammates.disabled": "Team glow disabled.",
   "glow.teammates.status.header": "Team glow: %1$s",
   "glow.teammates.no_teams": "No teams have glow enabled.",
+  "glow.teammates.no_permission": "You don't have permission to use this command.",
   "glow.teammates.teams_list": "Enabled teams: %1$s",
   "glow.teammates.team_already": "Team '%1$s' already has glow enabled.",
   "glow.teammates.team_added": "Team '%1$s' now has glow enabled.",
   "glow.teammates.team_not_enabled": "Team '%1$s' does not have glow enabled.",
   "glow.teammates.team_removed": "Team '%1$s' glow disabled.",
+  "glow.teammates.team_not_found": "Team '%1$s' does not exist yet — glow will take effect once the team is created.",
   "glow.teammates.save_failed": "Failed to save config — this change will be lost on restart.",
   "glow.teammates.config.list": "Config: %1$s",
   "glow.teammates.config.set": "%1$s set to %2$s."

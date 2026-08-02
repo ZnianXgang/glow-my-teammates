@@ -27,8 +27,9 @@ public abstract class ScoreboardMixin {
      */
     @Unique
     private static void onTeamChange(PlayerTeam team) {
-        if (GlowConfigManager.getInstance().isTeamEnabled(team.getName())) {
-            GlowConfigManager.getInstance().bumpSyncEpoch();
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        if (config.isEnabled() && config.isTeamEnabled(team.getName())) {
+            config.bumpSyncEpoch();
         }
     }
 

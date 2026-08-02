@@ -95,12 +95,10 @@ public abstract class ServerEntityMixin {
         if (original != null) {
             return original; // Natural dirty data → @Redirect handles it.
         }
-        if (!(entity instanceof Player)
-                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
             return null;
         }
-
-        GlowConfigManager config = GlowConfigManager.getInstance();
 
         long currentConfigVersion = config.getVersion();
         long currentSyncEpoch = config.getSyncEpoch();
@@ -173,15 +171,21 @@ public abstract class ServerEntityMixin {
      */
     @Inject(method = "addPairing", at = @At("TAIL"))
     private void onAddPairing(ServerPlayer viewer, CallbackInfo ci) {
-        if (!(entity instanceof Player)
-                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+        if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
             return;
         }
-        GlowConfigManager config = GlowConfigManager.getInstance();
         if (!config.isEnabled()) {
             return;
         }
         if (!config.hasEnabledTeams()) {
+            return;
+        }
+
+        // Vanilla glow (spectral arrows, potions, setGlowingTag) already covers
+        // the viewer — same rule as redirectSendData, so both paths judge
+        // uniformly and the OR-ing here stays a no-op.
+        if (entity instanceof LivingEntity living && living.isCurrentlyGlowing()) {
             return;
         }
 
@@ -242,6 +246,23 @@ public abstract class ServerEntityMixin {
         return team;
     }
 
+    /**
+     * Whether the entity should currently be glowing through this mod: the mod
+     * is on, some team has glow enabled, the entity is eligible (player, or
+     * non-player with the {@code non_player_glow} switch on), and it belongs
+     * to a glow-enabled team.
+     */
+    @Unique
+    private boolean shouldEntityGlow(GlowConfigManager config) {
+        if (!config.isEnabled() || !config.hasEnabledTeams()) {
+            return false;
+        }
+        if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
+            return false;
+        }
+        return getGlowingTeam(entity) != null;
+    }
+
     // ========== Per-client glow customization ==========
 
     /**
@@ -254,7 +275,8 @@ public abstract class ServerEntityMixin {
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/server/level/ServerEntity$Synchronizer;"
-                            + "sendToTrackingPlayersAndSelf(Lnet/minecraft/network/protocol/Packet;)V"
+                            + "sendToTrackingPlayersAndSelf(Lnet/minecraft/network/protocol/Packet;)V",
+                    ordinal = 0
             )
     )
     private void redirectSendData(
@@ -268,13 +290,27 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        if (!(entity instanceof Player)
-                && !GlowConfigManager.getInstance().isNonPlayerGlow()) {
+        GlowConfigManager config = GlowConfigManager.getInstance();
+
+        // If this entity was previously customized by the mod but should no
+        // longer glow (mod off, team removed from the config, non_player_glow
+        // off, or the entity left the glow team), push the server's actual
+        // flags right away. A continuously-dirty entity (a drowning player's
+        // AIR_SUPPLY, a frozen entity's ticksFrozen) never lets packDirty()
+        // return null, so smartForcePacket never fires and the stale glow bit
+        // would otherwise linger on clients until the data stops changing.
+        if (cachedTeamName != null && !shouldEntityGlow(config)) {
+            sync.sendToTrackingPlayersAndSelf(new ClientboundSetEntityDataPacket(
+                    entity.getId(), buildFlagsPacket()));
+            cachedTeamName = null;
+            cachedConfigVersion = config.getVersion();
+            cachedSyncEpoch = config.getSyncEpoch();
+        }
+
+        if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
-
-        GlowConfigManager config = GlowConfigManager.getInstance();
         if (!config.isEnabled()) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
@@ -287,22 +323,25 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        // Skip when vanilla glowing is active (spectral arrows, potions, or
-        // setGlowingTag): isCurrentlyGlowing() on the server equals
-        // hasEffect(GLOWING) || hasGlowingTag (see LivingEntity), which is
-        // exactly what the shared-flags 0x40 bit reflects.
-        if (entity instanceof LivingEntity living
-                && living.isCurrentlyGlowing()) {
+        // Skip when vanilla glowing is active: for LivingEntity,
+        // isCurrentlyGlowing() covers the GLOWING effect AND setGlowingTag,
+        // which is exactly what the shared-flags 0x40 bit reflects. Non-living
+        // entities (item frames, boats...) have no effect — only the glow tag
+        // can be set, so check the same bit directly; without this, the
+        // no-glow broadcast below would wrongly extinguish their vanilla glow.
+        boolean vanillaGlow = entity instanceof LivingEntity living
+                ? living.isCurrentlyGlowing()
+                : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
+                        & FLAG_GLOWING) != 0;
+        if (vanillaGlow) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
 
-        String entityName = entity.getScoreboardName();
-        Scoreboard scoreboard = entity.level().getScoreboard();
-        PlayerTeam entityTeamObj = scoreboard.getPlayersTeam(entityName);
+        PlayerTeam entityTeamObj = getGlowingTeam(entity);
 
         // Entity not in a glowing team → no glow customization needed
-        if (entityTeamObj == null || !config.isTeamEnabled(entityTeamObj.getName())) {
+        if (entityTeamObj == null) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
@@ -327,6 +366,10 @@ public abstract class ServerEntityMixin {
         // (ChunkMap.TrackedEntity.updatePlayer excludes self), is covered by
         // sendToTrackingPlayersAndSelf, so the former explicit self-send is
         // unnecessary.
+        //
+        // Deliberate consequence: a glowing player does NOT see their own glow
+        // in third-person view — self gets the no-glow variant and the tracking
+        // set excludes self — only teammates see it.
         sync.sendToTrackingPlayersAndSelf(noGlowPacket);
         sync.sendToTrackingPlayersFiltered(glowPacket, isTeammate);
     }
@@ -334,7 +377,10 @@ public abstract class ServerEntityMixin {
     // ========== Packet helper ==========
 
     /**
-     * Create a copy of the packet with the glowing flag (bit 0x40) modified.
+     * Create a copy of the packet with the glowing flag (bit 0x40) modified,
+     * or return the original packet unchanged when the flag already matches
+     * the requested state (avoids allocating and re-serializing an identical
+     * packet for the common no-glow broadcast).
      *
      * <p>When the packet does not contain the shared-flags entry (i.e. the
      * flags did not change since the last send), the glow variant must add
@@ -350,12 +396,13 @@ public abstract class ServerEntityMixin {
                 new ArrayList<>(packet.packedItems());
         int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
         boolean foundFlag = false;
+        boolean changed = false;
 
         for (int i = 0; i < items.size(); i++) {
             SynchedEntityData.DataValue<?> item = items.get(i);
             if (item.id() == sharedFlagsId && item.value() instanceof Byte current) {
                 byte newValue = (byte) (shouldGlow
-                        ? (current | FLAG_GLOWING) : (current & ~FLAG_GLOWING));
+                        ? (current | FLAG_GLOWING) : (current & 0xBF));
                 if (newValue != current) {
                     // item.id() == sharedFlagsId was verified above — reuse
                     // it instead of hardcoding the flags slot id (0).
@@ -363,20 +410,30 @@ public abstract class ServerEntityMixin {
                             new SynchedEntityData.DataValue(
                                     item.id(), item.serializer(), newValue);
                     items.set(i, rawItem);
+                    changed = true;
                 }
                 foundFlag = true;
                 break;
             }
         }
 
-        if (!foundFlag && shouldGlow) {
+        if (!foundFlag) {
+            if (!shouldGlow) {
+                // No flags entry to clear — the original packet is identical.
+                return packet;
+            }
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
             items.add(new SynchedEntityData.DataValue<>(
                     sharedFlagsId, EntityDataSerializers.BYTE,
                     (byte) (current | FLAG_GLOWING)));
+            changed = true;
         }
 
+        if (!changed) {
+            // Flags already in the desired state — reuse the original packet.
+            return packet;
+        }
         return new ClientboundSetEntityDataPacket(packet.id(), items);
     }
 }

@@ -8,19 +8,29 @@ import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 
+/**
+ * Process-wide holder of the mod's runtime state and its per-world JSON
+ * persistence.
+ *
+ * <p><strong>Threading:</strong> all mutable state is owned by the server
+ * thread and must only be accessed from it (command execution, ServerEntity
+ * ticks, Scoreboard events). Do not call setters or getters from async
+ * contexts without adding synchronization.
+ */
 public class GlowConfigManager {
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .disableHtmlEscaping()
             .create();
     private static final String FILENAME = "glow-my-teammates.json";
-    private static GlowConfigManager INSTANCE;
+    private static final GlowConfigManager INSTANCE = new GlowConfigManager();
 
     private boolean enabled = true;
     private final Set<String> enabledTeams = new LinkedHashSet<>();
@@ -40,10 +50,10 @@ public class GlowConfigManager {
     private long syncEpoch;
 
     /**
-     * Whether the locator bar should show teammates only (feature: locator
-     * bar filter). Default {@code false}.
+     * Whether the locator bar hides members of other glow-enabled teams
+     * (feature: locator bar filter). Default {@code false}.
      */
-    private boolean locatorBarTeammatesOnly;
+    private boolean locatorBarHideOtherGlowingTeams;
 
     /**
      * Whether non-player entities (mobs) are eligible for team glow.
@@ -53,9 +63,6 @@ public class GlowConfigManager {
     private boolean nonPlayerGlow;
 
     public static GlowConfigManager getInstance() {
-        if (INSTANCE == null) {
-            INSTANCE = new GlowConfigManager();
-        }
         return INSTANCE;
     }
 
@@ -83,8 +90,14 @@ public class GlowConfigManager {
                         }
                     }
                     if (data.config != null) {
-                        this.locatorBarTeammatesOnly = data.config.locatorBarTeammatesOnly;
+                        this.locatorBarHideOtherGlowingTeams = data.config.locatorBarHideOtherGlowingTeams;
                         this.nonPlayerGlow = data.config.nonPlayerGlow;
+                    } else {
+                        // Legacy config (no `config` sub-object): explicitly
+                        // reset to defaults — never inherit a previous world's
+                        // switch state from the process-wide singleton.
+                        this.locatorBarHideOtherGlowingTeams = false;
+                        this.nonPlayerGlow = false;
                     }
                     // Schema migration: configs written before config_version
                     // existed have a null version array — treat them as legacy
@@ -99,11 +112,19 @@ public class GlowConfigManager {
                     this.version++;
                 }
                 GlowMyTeammates.LOGGER.info(
-                        "Loaded config: enabled={}, teams={}", enabled, enabledTeams);
+                        "Loaded config: enabled={}, teams={}, locator_bar_hide_other_glowing_teams={}, non_player_glow={}",
+                        enabled, enabledTeams, locatorBarHideOtherGlowingTeams, nonPlayerGlow);
             } catch (Exception e) {
                 GlowMyTeammates.LOGGER.error("Failed to load config, using defaults", e);
                 this.enabled = true;
                 this.enabledTeams.clear();
+                this.locatorBarHideOtherGlowingTeams = false;
+                this.nonPlayerGlow = false;
+                // Persist the fallback so a corrupt file is repaired instead
+                // of re-reporting the error on every server start. Runs before
+                // version++ for the same cache-invalidation semantics as the
+                // migration path.
+                save();
                 // Bump the version so entities that already cached the old
                 // config state (cachedConfigVersion == old version) notice
                 // the fallback to defaults and force a glow resync.
@@ -117,6 +138,8 @@ public class GlowConfigManager {
             // otherwise leak teams into this new world's config file).
             this.enabled = true;
             this.enabledTeams.clear();
+            this.locatorBarHideOtherGlowingTeams = false;
+            this.nonPlayerGlow = false;
             this.version++;
             save();
         }
@@ -138,7 +161,7 @@ public class GlowConfigManager {
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
             data.configVersion = new int[]{1, 0};
             ConfigSubData subConfig = new ConfigSubData();
-            subConfig.locatorBarTeammatesOnly = this.locatorBarTeammatesOnly;
+            subConfig.locatorBarHideOtherGlowingTeams = this.locatorBarHideOtherGlowingTeams;
             subConfig.nonPlayerGlow = this.nonPlayerGlow;
             data.config = subConfig;
             Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
@@ -146,21 +169,52 @@ public class GlowConfigManager {
                     Files.newOutputStream(tmpPath), StandardCharsets.UTF_8)) {
                 GSON.toJson(data, writer);
             }
-            try {
-                Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                // Fall back to a non-atomic move on filesystems that cannot
-                // atomically replace an existing file (e.g. some network/FAT
-                // volumes) instead of silently losing the save.
-                Files.move(tmpPath, configPath, StandardCopyOption.REPLACE_EXISTING);
-            }
+            moveIntoPlace(tmpPath, configPath);
             GlowMyTeammates.LOGGER.info("Saved config to {}", configPath);
             return true;
         } catch (IOException e) {
             GlowMyTeammates.LOGGER.error("Failed to save config", e);
             return false;
         }
+    }
+
+    /**
+     * Replace {@code target} with {@code tmpPath}, preferring an atomic move.
+     *
+     * <p>ATOMIC_MOVE is not supported on every filesystem, and on Windows
+     * replacing an <em>existing</em> file this way can throw
+     * {@link AccessDeniedException} rather than
+     * {@link AtomicMoveNotSupportedException} (the underlying
+     * {@code MoveFileExW} reports {@code ERROR_ACCESS_DENIED}). Either way we
+     * downgrade to a plain {@code REPLACE_EXISTING} move, retrying briefly in
+     * case the target is transiently locked (e.g. by an antivirus scanner or
+     * cloud sync).
+     */
+    private static void moveIntoPlace(Path tmpPath, Path target) throws IOException {
+        try {
+            Files.move(tmpPath, target, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+            return;
+        } catch (AtomicMoveNotSupportedException | AccessDeniedException e) {
+            // Atomic replace rejected — fall through to a plain move.
+        }
+
+        IOException lastFailure = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                Files.move(tmpPath, target, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (AccessDeniedException e) {
+                lastFailure = e; // Transient lock — wait and retry.
+                try {
+                    Thread.sleep(50L << attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw lastFailure;
+                }
+            }
+        }
+        throw lastFailure;
     }
 
     public boolean isEnabled() {
@@ -216,20 +270,20 @@ public class GlowConfigManager {
         return removed;
     }
 
-    public boolean isLocatorBarTeammatesOnly() {
-        return locatorBarTeammatesOnly;
+    public boolean isLocatorBarHideOtherGlowingTeams() {
+        return locatorBarHideOtherGlowingTeams;
     }
 
     /**
-     * Whether the locator bar should show teammates only. Idempotent — no-op
-     * when the value is unchanged, to avoid a spurious version bump and the
-     * resulting full-server resync.
+     * Whether the locator bar hides members of other glow-enabled teams.
+     * Idempotent — no-op when the value is unchanged, to avoid a spurious
+     * version bump and the resulting full-server resync.
      */
-    public void setLocatorBarTeammatesOnly(boolean locatorBarTeammatesOnly) {
-        if (this.locatorBarTeammatesOnly == locatorBarTeammatesOnly) {
+    public void setLocatorBarHideOtherGlowingTeams(boolean locatorBarHideOtherGlowingTeams) {
+        if (this.locatorBarHideOtherGlowingTeams == locatorBarHideOtherGlowingTeams) {
             return;
         }
-        this.locatorBarTeammatesOnly = locatorBarTeammatesOnly;
+        this.locatorBarHideOtherGlowingTeams = locatorBarHideOtherGlowingTeams;
         this.version++;
     }
 
@@ -277,7 +331,7 @@ public class GlowConfigManager {
     }
 
     public static class ConfigSubData {
-        boolean locatorBarTeammatesOnly = false;
+        boolean locatorBarHideOtherGlowingTeams = false;
         boolean nonPlayerGlow = false;
 
         ConfigSubData() {}

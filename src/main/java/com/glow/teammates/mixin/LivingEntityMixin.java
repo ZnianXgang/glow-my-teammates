@@ -35,7 +35,7 @@ public abstract class LivingEntityMixin {
             Optional<WaypointTransmitter.Connection> original, ServerPlayer receiver) {
 
         GlowConfigManager config = GlowConfigManager.getInstance();
-        if (!config.isLocatorBarTeammatesOnly()) {
+        if (!config.isLocatorBarHideOtherGlowingTeams()) {
             return original; // Feature off — vanilla behavior.
         }
 

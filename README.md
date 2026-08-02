@@ -16,7 +16,7 @@ A server-side Fabric mod for Minecraft 26.1 / 26.2 built on the vanilla `/team` 
 |---|---|
 | Team glow for players | `/teamglow team add <team>` |
 | Glow for non-player entities (mobs) | `/teamglow config non_player_glow true` |
-| Locator bar: glow-enabled teams hide each other | `/teamglow config locator_bar_teammates_only true` |
+| Locator bar: glow-enabled teams hide each other | `/teamglow config locator_bar_hide_other_glowing_teams true` |
 | Fine-grained command permissions | Any LuckPerms-compatible permission mod |
 
 ## Requirements
@@ -54,7 +54,7 @@ Every command is gated by a permission node under `glow-my-teammates:command/...
 | `/teamglow team add <team>` | `command/team/add` (OP 2) | Enable glow for a team |
 | `/teamglow team remove <team>` | `command/team/remove` (OP 2) | Disable glow for a team |
 | `/teamglow team list` | `command/team/list` (all) | List teams with glow enabled |
-| `/teamglow config list` | `command/config` (OP 2) | Show current feature switches |
+| `/teamglow config` | `command/config` (OP 2) | Show current feature switches |
 | `/teamglow config <switch> <true\|false>` | `command/config` (OP 2) | Toggle a feature switch |
 
 ### Feature switches
@@ -62,7 +62,7 @@ Every command is gated by a permission node under `glow-my-teammates:command/...
 | Switch | Default | Effect |
 |---|---|---|
 | `non_player_glow` | `false` | When on, mobs that are in a glow-enabled team glow for their teammates. Note: with this on, every dirty entity-data packet of every tracked entity goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
-| `locator_bar_teammates_only` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **hides members of other glow-enabled teams** (competitors), while same-team members, non-glow teams and teamless players stay visible. Viewers who are not in a glow-enabled team see everyone, unchanged. |
+| `locator_bar_hide_other_glowing_teams` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **hides members of other glow-enabled teams** (competitors), while same-team members, non-glow teams and teamless players stay visible. Viewers who are not in a glow-enabled team see everyone, unchanged. |
 
 ## Config file
 
@@ -73,7 +73,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
   "enabled": true,
   "teams": ["red", "blue"],
   "config": {
-    "locator_bar_teammates_only": false,
+    "locator_bar_hide_other_glowing_teams": false,
     "non_player_glow": false
   },
   "config_version": [1, 0]
@@ -88,6 +88,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
 - **Vanilla glowing is untouched.** Spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work — the mod only adds or clears its own bit on top.
 - **`/team remove <team>` cleans up immediately.** When a team is deleted, viewers stop seeing the glow right away (no stale glow until re-login).
 - **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations mean even command feedback shows readable text on vanilla clients.
+- **No self-glow in third person.** A glowing player does not see their own glow in F5 view — only teammates do. Deliberate: self always receives the no-glow variant.
 
 ## Building from source
 
