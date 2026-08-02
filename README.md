@@ -48,14 +48,14 @@ Every command is gated by a permission node under `glow-my-teammates:command.*`,
 
 | Command | Permission node (fallback) | Description |
 |---|---|---|
-| `/teamglow on` | `command.on` (OP 2) | Enable team glow globally |
-| `/teamglow off` | `command.off` (OP 2) | Disable team glow globally |
-| `/teamglow status` | `command.status` (all) | Show global state and enabled teams |
-| `/teamglow team add <team>` | `command.team.add` (OP 2) | Enable glow for a team |
-| `/teamglow team remove <team>` | `command.team.remove` (OP 2) | Disable glow for a team |
-| `/teamglow team list` | `command.team.list` (all) | List teams with glow enabled |
-| `/teamglow config` | `command.config` (OP 2) | Show current feature switches |
-| `/teamglow config <switch> <true\|false>` | `command.config` (OP 2) | Toggle a feature switch |
+| `/teamglow on` | `glow-my-teammates:command.on` (OP 2) | Enable team glow globally |
+| `/teamglow off` | `glow-my-teammates:command.off` (OP 2) | Disable team glow globally |
+| `/teamglow status` | `glow-my-teammates:command.status` (all) | Show global state and enabled teams |
+| `/teamglow team add <team>` | `glow-my-teammates:command.team.add` (OP 2) | Enable glow for a team |
+| `/teamglow team remove <team>` | `glow-my-teammates:command.team.remove` (OP 2) | Disable glow for a team |
+| `/teamglow team list` | `glow-my-teammates:command.team.list` (all) | List teams with glow enabled |
+| `/teamglow config` | `glow-my-teammates:command.config` (OP 2) | Show current feature switches |
+| `/teamglow config <switch> <true\|false>` | `glow-my-teammates:command.config` (OP 2) | Toggle a feature switch |
 
 ### Feature switches
 
