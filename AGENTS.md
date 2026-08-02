@@ -1,195 +1,156 @@
 # AGENTS.md — Glow My Teammates
 
-## Project Overview
+## 1. The mental model
 
-Server-side Fabric mod that makes teammates glow for each other. Uses vanilla `/team` system — no custom team management. Supports **Minecraft 26.1 and 26.2** via Stonecutter multi-version build system.
+This mod makes teammates glow for each other on Minecraft 26.1/26.2 (Fabric, Mojang mappings). It never manages teams — it only *watches* the vanilla `/team` system and *customizes the glow bit* (`Entity.DATA_SHARED_FLAGS_ID`, bit `0x40`) that the server sends to each client.
 
-## Tech Stack
+Three ideas hold the whole design together:
 
-- **Minecraft**: 26.1, 26.2 (Mojang mappings, no Yarn)
-- **Fabric Loader**: 0.18.4+ (26.1) / 0.19.3+ (26.2)
-- **Fabric API**: 0.155.2+
-- **Java**: 25
-- **Build**: Gradle 9.5.1 + Fabric Loom 1.17 + Stonecutter 0.9.7
+1. **Glow is per-viewer, not per-entity.** The server broadcasts a no-glow variant of every entity-data packet, then overlays a glow variant to teammates only. Netty's per-connection FIFO ordering guarantees the overlay arrives last.
+2. **Everything is event-driven.** No per-tick loops. The mod reacts to exactly three kinds of events: entity data going dirty, a new viewer entering tracking range, and team/config changes. In steady state it does nothing.
+3. **Caches must be invalidated, not guessed.** Three monotonically increasing counters (`version`, `syncEpoch`, and the disk `config_version`) tell the mixins when a previously-sent glow state may be stale.
 
-## Project Structure
+## 2. Repository map
 
 ```
-├── settings.gradle               Stonecutter plugin + version definitions
-├── build.gradle                  Shared build script (version-aware via sc.current)
-├── gradle.properties              Mod-level properties (mod_version, maven_group)
-├── versions/
-│   ├── 26.1/gradle.properties     MC 26.1 dependency versions
-│   └── 26.2/gradle.properties     MC 26.2 dependency versions
-└── src/main/java/com/glow/teammates/
-    ├── GlowMyTeammates.java        Mod entry (ModInitializer)
-    ├── config/GlowConfigManager.java  World-save JSON config
-    ├── command/GlowCommand.java     /teamglow command
-    └── mixin/
-        ├── EntityAccessor.java        @Accessor for Entity.DATA_SHARED_FLAGS_ID
-        ├── LivingEntityMixin.java     Locator bar filter (MixinExtras @ModifyReturnValue)
-        ├── ScoreboardMixin.java       Detects team membership changes
-        └── ServerEntityMixin.java     Core: event-driven per-client glow
+settings.gradle                     Stonecutter: versions '26.1', '26.2', vcsVersion = 26.2
+build.gradle                        Shared script; per-version deps via ${property(...)}
+gradle.properties                   mod_version (1.1.0), maven_group, loom_version
+versions/<mc>/gradle.properties     Per-version: minecraft/loader/fabric-api/server-translations versions
+src/main/resources/
+  fabric.mod.json                   environment: "*" (loads in singleplayer/LAN too)
+  glow-my-teammates.mixins.json     Registers the 4 mixins below
+  data/glow-my-teammates/lang/      en_us.json — translated server-side (Server-Translations API)
+src/main/java/com/glow/teammates/
+  GlowMyTeammates.java              ModInitializer: hooks SERVER_STARTED + command registration
+  config/GlowConfigManager.java     Singleton holding all runtime state + JSON persistence
+  command/GlowCommand.java          /teamglow tree
+  mixin/
+    ServerEntityMixin.java          Core glow engine (3 injection points, see §4.1)
+    ScoreboardMixin.java            Team-membership change detection → syncEpoch
+    LivingEntityMixin.java          Locator-bar filter (MixinExtras @ModifyReturnValue)
+    EntityAccessor.java             @Accessor for Entity.DATA_SHARED_FLAGS_ID
 ```
 
-## How It Works
+## 3. The glow pipeline
 
-Four Mixin classes working together:
+### 3.1 Packet flow (per entity, per tick)
 
-### 1. `ServerEntityMixin` — Core glow logic
-
-**`@ModifyVariable` on `packDirty()`** — event-driven instead of per-tick:
-- `packDirty()` returns `null` when no data changed → vanilla skips the packet
-- Only forces a packet when glow state actually changes:
-  - Entity joins/leaves a glowing team (`cachedTeamName` mismatch)
-  - Config changes (`cachedConfigVersion` mismatch, from `/teamglow` commands)
-  - Viewer-side team changes (`cachedSyncEpoch` mismatch, from Scoreboard hooks)
-- **Optimization 1**: When both `version` and `syncEpoch` are unchanged, skips the scoreboard lookup entirely — returns `null` immediately
-- **Optimization 2**: Entity never in a glowing team (current and cached team both `null`) → updates the caches and returns `null` — no broadcast, and no repeated lookups on later epoch/config bumps
-- Returns `null` otherwise → zero overhead in steady state
-
-**`@Inject` on `addPairing(ServerPlayer)`** (TAIL) — initial viewer sync:
-- Fires exactly once when a player enters tracking range
-- Immediately sends correct glow state (glow for teammates, no glow for others)
-- Prevents cache so `@ModifyVariable` won't redundantly force later
-- **Defensive**: null-guards `viewer.connection` to prevent NPE on disconnect race
-
-**`@Redirect` on `sendToTrackingPlayersAndSelf()`** — per-client glow customization:
-- Intercepts entity data packets from `sendDirtyEntityData()`
-- Creates two modified copies: one with glow bit (`FLAG_GLOWING` = 0x40) set, one cleared
-- **Fast path**: `hasEnabledTeams()` → no team has glow enabled, forward the packet untouched (skips all per-packet lookups)
-- Broadcasts the no-glow variant to everyone (tracking + self), then overlays the glow variant to teammates only via `sendToTrackingPlayersFiltered` — one pass over the tracking set, one scoreboard lookup per viewer (Netty FIFO guarantees teammates end up with the glow bit set)
-- Self is never part of its own tracking set (`ChunkMap.TrackedEntity.updatePlayer` excludes self) — `sendToTrackingPlayersAndSelf` covers it, so no explicit self-send is needed
-- **Optimization**: Entity-team lookup hoisted out of per-viewer predicate — computed once instead of per-viewer
-- Skips when the entity is currently glowing (`LivingEntity.isCurrentlyGlowing()` — covers the GLOWING effect AND `setGlowingTag`)
-- Falls back to vanilla path when entity is not in a glowing team
-- Shared-flags id comes from `EntityAccessor.getSharedFlagsId().id()` — never hardcoded
-- Both 26.1 and 26.2 use the same `sendToTrackingPlayersFiltered` API
-
-### 2. `ScoreboardMixin` — Viewer-side team change detection
-
-- `@Inject` on `Scoreboard.addPlayerToTeam(String, PlayerTeam)`
-- `@Inject` on `Scoreboard.removePlayerFromTeam(String, PlayerTeam)` (the single-arg overload is NOT hooked — it internally calls the two-arg version on success)
-- `@Inject` on `Scoreboard.removePlayerTeam(PlayerTeam)` — required because `/team remove` clears `teamsByPlayer` directly, bypassing both hooks above (without this, glow would linger indefinitely on viewers)
-- All hooks funnel through `onTeamChange(PlayerTeam)`: bumps `syncEpoch` **only for teams with glow enabled** — membership changes in other teams cannot affect any glow display
-- All three hooks carry explicit method descriptors (survives future overload additions)
-
-### 3. `EntityAccessor` — Shared flags accessor
-
-- `@Accessor` for `Entity.DATA_SHARED_FLAGS_ID` — static accessor for the shared flags `EntityDataAccessor`
-
-### 4. `LivingEntityMixin` — Locator bar filter
-
-- MixinExtras `@ModifyReturnValue` on `LivingEntity.makeWaypointConnectionWith(ServerPlayer)` (returns `Optional<Connection>`; an empty result makes `ServerWaypointManager.createConnection` tear the connection down)
-- Gated by the `locator_bar_teammates_only` config switch (default off → vanilla behavior)
-- **Asymmetric, receiver-driven semantics**: a viewer in a glow-enabled team hides members of OTHER glow-enabled teams (same-team, non-glow and teamless entities stay visible); viewers outside glow-enabled teams see everyone
-- **No Stonecutter version gates** — the interface signature is identical in 26.1 and 26.2 (the `LocatorBarRenderer` vs `LocatorBar` client difference only matters for the client-side filtering route, which was not taken)
-- MixinExtras is compile-time only (`io.github.llamalad7:mixinextras-fabric:0.5.4`); the runtime is bundled with fabric-loader (0.18.4 ships 0.5.0, 0.19.3 ships 0.5.4)
-- Toggling the switch rebuilds all waypoint connections via `ServerLevel.getWaypointManager().remakeConnections(player)` (mirrors vanilla `ServerScoreboard.updateTeamWaypoints`)
-
-### Config layer (`GlowConfigManager`)
-
-- `loadFromWorld(server)`: resets to defaults **and bumps `version`** on missing OR corrupt config — no cross-world leakage, and entities that already cached the old state always notice the fallback
-- `setEnabled(boolean)`: idempotent — no-op if already in the requested state (avoids spurious version bumps + full-server resyncs)
-- `save()`: returns `boolean`; temp file + `ATOMIC_MOVE` with non-atomic fallback (`AtomicMoveNotSupportedException`); commands surface save failures to the admin
-- `hasEnabledTeams()`: zero-allocation fast path (unlike `getEnabledTeams()`, which builds an unmodifiable view)
-- Feature switches (`locatorBarTeammatesOnly`, `nonPlayerGlow`) with **idempotent setters** that bump `version` only on actual change
-- Disk schema versioning: `config_version` `[major, minor]` array; legacy configs (field absent → `null`) are migrated to `[1, 0]` on load, **before** `version++`
-
-## Stonecutter — Version Management
-
-This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to maintain a single codebase targeting multiple Minecraft versions.
-
-### Key Concepts
-
-- **VCS version** (26.2): The canonical source in the repository. Commit from this version.
-- **Active version**: The version currently open in the IDE. Switch with the Gradle task.
-- **Versioned comments**: `//? if 26.2 { ... } //?} else { ... }` gates code per version.
-
-### Common Commands
-
-```bash
-# Build all versions
-./gradlew build
-
-# Switch active version in IDE
-./gradlew setActiveVersion -Pversion=26.1
-
-# Reset source to VCS version (run before committing!)
-./gradlew "Reset active project"
+```
+ServerEntity.sendDirtyEntityData()
+  ├─ SynchedEntityData.packDirty() ──── null? → smartForcePacket (only forces when state changed)
+  │       └─ returns List<DataValue> → vanilla continues to sendToTrackingPlayersAndSelf
+  │               └─ @Redirect redirectSendData intercepts the call, per-viewer customization:
+  │                    1. no-glow copy  → broadcast to tracking set + self
+  │                    2. glow copy     → sendToTrackingPlayersFiltered(teammates only)
+  └─ addPairing(player) (first sighting) → onAddPairing sends the correct initial state exactly once
 ```
 
-### Adding a New Version
+### 3.2 The three hooks of `ServerEntityMixin`
 
-1. Add to `settings.gradle`: `versions '26.1', '26.2', '26.3'`
-2. Create `versions/26.3/gradle.properties` with the correct dependencies
-3. Add version-gated code blocks as needed: `//? if >=26.3 { ... }`
-
-### Current Version Differences
-
-| API | 26.1 | 26.2 |
+| Hook | Fires when | Job |
 |---|---|---|
-| Permission check | `PermissionPredicates.require(...)` (Fabric `permission.v1`) | Same |
-| Scoreboard access | `entity.level().getScoreboard()` | Same |
-| Identifier factory | `Identifier.fromNamespaceAndPath()` | Same |
+| `smartForcePacket` (`@ModifyVariable` on the `packDirty()` result) | `packDirty()` returned `null` | Force a packet **only** if `cachedTeamName`/`cachedConfigVersion`/`cachedSyncEpoch` are stale; otherwise return `null` so vanilla skips the packet entirely |
+| `onAddPairing` (`@Inject` TAIL on `addPairing`) | A new viewer starts tracking the entity | Send the correct glow state immediately, and seed the caches so `smartForcePacket` won't redundantly force later |
+| `redirectSendData` (`@Redirect` on `sendToTrackingPlayersAndSelf`) | Every dirty-data broadcast | Build no-glow + glow copies, broadcast then overlay (see §3.1) |
 
-## Building
+`smartForcePacket` has two optimizations worth not breaking:
+- **Fast bail**: if `version` and `syncEpoch` are both unchanged, the entity's team cannot have changed — skip the scoreboard lookup, return `null`.
+- **Never-glow bail**: if the entity is not in a glowing team now *and* wasn't at last sync, update the caches and return `null` — later epoch/config bumps won't re-run lookups for it forever.
 
-```bash
-./gradlew build
+`redirectSendData` fast paths (in order): not a `ClientboundSetEntityDataPacket` → forward; non-player **and** `non_player_glow` off → forward; mod disabled → forward; `hasEnabledTeams()` false → forward; entity currently glowing (`isCurrentlyGlowing()` covers the GLOWING effect *and* `setGlowingTag`) → forward. The entity-team lookup is hoisted out of the per-viewer predicate — computed once.
+
+The old explicit self-send was deleted: `ChunkMap.TrackedEntity.updatePlayer` excludes the entity from its own tracking set, so `sendToTrackingPlayersAndSelf` already covers self.
+
+### 3.3 Viewer-side team changes (`ScoreboardMixin`)
+
+Three `@Inject`s funnel into one `onTeamChange(PlayerTeam)` which bumps `syncEpoch` **only for glow-enabled teams**:
+- `Scoreboard.addPlayerToTeam(String, PlayerTeam)` (RETURN, checks return value)
+- `Scoreboard.removePlayerFromTeam(String, PlayerTeam)` (the single-arg overload is deliberately NOT hooked — on success it calls the two-arg version, hooking both would double-bump)
+- `Scoreboard.removePlayerTeam(PlayerTeam)` — required: `/team remove` clears `teamsByPlayer` directly, bypassing both hooks above. Without it, glow would linger forever on viewers.
+
+All three carry explicit method descriptors so future overload additions can't silently break them.
+
+## 4. Config & invalidation model (`GlowConfigManager`)
+
+### 4.1 Three counters, three jobs
+
+| Counter | Type | Job | Bumped by |
+|---|---|---|---|
+| `version` | runtime `long` | Entity-side cache invalidation (`cachedConfigVersion`) | Every state change via idempotent setters |
+| `syncEpoch` | runtime `long` | Viewer-side cache invalidation (`cachedSyncEpoch`) | `bumpSyncEpoch()` from team changes in glow teams |
+| `config_version` | disk `int[]` `[major, minor]` | Disk schema version, *not* a cache counter | Migration only |
+
+`version` and `syncEpoch` live entirely in RAM and reset every server start — that is fine, caches are per-`ServerEntity` instance and are re-seeded by `onAddPairing`.
+
+### 4.2 Idempotency rule
+
+Every setter (`setEnabled`, `addTeam`, `removeTeam`, `setLocatorBarTeammatesOnly`, `setNonPlayerGlow`) must be a no-op when the value is unchanged, otherwise it bumps `version` and forces a pointless full-server resync. This is a standing requirement — preserve it in new setters.
+
+### 4.3 Load & migration order (in `loadFromWorld`)
+
+1. Parse JSON into `ConfigData` (fields `configVersion`/`config` default to `null` = legacy marker).
+2. Read the `config` sub-object into the singleton fields.
+3. If `configVersion` is missing (legacy), call `save()` to rewrite the file with `[1, 0]`.
+4. Only then `version++`.
+
+Step 3 must run **before** step 4: the migration write is itself a config change, and the cache-invalidation semantics depend on the counter reflecting it. Adding a new switch later = minor bump only, no migration code, Gson fills the default.
+
+## 5. Locator-bar filter (`LivingEntityMixin`)
+
+MixinExtras `@ModifyReturnValue` on `LivingEntity.makeWaypointConnectionWith(ServerPlayer)` (returns `Optional<WaypointTransmitter.Connection>`). Returning `Optional.empty()` makes `ServerWaypointManager.createConnection`'s `ifPresentOrElse` tear the connection down — no extra cleanup needed.
+
+Semantics are **asymmetric and receiver-driven**:
+1. Switch off → return `original` (vanilla).
+2. Receiver not in a glow-enabled team (teamless or non-glow team) → return `original` (sees everyone).
+3. Receiver in a glow-enabled team → hide members of *other* glow-enabled teams (`myTeam` glow-enabled and `!myTeam.equals(receiverTeam)` → `Optional.empty()`); same-team, non-glow and teamless stay visible.
+
+Toggling the switch rebuilds connections immediately from `GlowCommand`: `ServerLevel.getWaypointManager().remakeConnections(player)` for every player in every dimension — the same call vanilla `ServerScoreboard.updateTeamWaypoints` makes on team changes.
+
+No Stonecutter version gates needed: the interface signature is identical in 26.1/26.2 (the `LocatorBarRenderer` vs `LocatorBar` client-class difference only matters for the client-side filtering route, which was intentionally not taken). MixinExtras is compile-time only (`compileOnly io.github.llamalad7:mixinextras-fabric:0.5.4`); the runtime is bundled with fabric-loader (0.18.4 ships 0.5.0, 0.19.3 ships 0.5.4).
+
+## 6. Commands & permissions (`GlowCommand`)
+
+```
+/teamglow
+├── on | off                    command/on | command/off          (fallback OP 2)
+├── status                      command/status                   (fallback: all)
+├── team
+│   ├── add <team>              command/team/add                 (fallback OP 2)
+│   ├── remove <team>           command/team/remove              (fallback OP 2)
+│   └── list                    command/team/list                (fallback: all)
+└── config
+    ├── list                    command/config                   (fallback OP 2)
+    ├── locator_bar_teammates_only <bool>   same node
+    └── non_player_glow <bool>              same node
 ```
 
-Output JARs:
-- `versions/26.2/build/libs/glow-my-teammates-1.1.0+26.2.jar`
-- `versions/26.1/build/libs/glow-my-teammates-1.1.0+26.1.jar`
+- Permission nodes are plain `Identifier` strings via `PermissionPredicates.require(node, fallbackLevel)` (Fabric `permission.v1`). `CommandSourceStack` gets the `PermissionContextOwner` interface through a **ClassTweaker** `transitive-inject-interface` in the fabric-permission-api module — this is why `.requires(...)` type-checks at compile time.
+- `PermissionLevel` is the **Mojang** enum `net.minecraft.server.permissions.PermissionLevel` (ALL..OWNERS), *not* a Fabric class.
+- LuckPerms works with no adapter: unset nodes return DEFAULT and fall back to the OP check; explicit `true`/`false` overrides it.
+- Config-switch messages use one generic key `glow.teammates.config.set` (`%1$s set to %2$s.`) so new switches never need a lang-file entry.
 
-## Config
+## 7. Multi-version build (Stonecutter)
 
-Per-world JSON at `<world>/glow-my-teammates.json`:
+- **VCS version is 26.2** — the canonical source in `src/`. Always commit from it.
+- `versions/<mc>/gradle.properties` hold per-version dependency versions; `build.gradle` reads them via `${property(...)}`. The `server-translations-api` version differs per MC (3.0.3+26.1 / 3.1.0+26.2) and is bundled with `implementation include(...)`.
+- Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates — the only cross-version API differences documented (locator-bar client classes) were avoided by the server-side design.
+- Commands: `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
 
-```json
-{
-  "enabled": true,
-  "teams": ["red", "blue"],
-  "config": {
-    "locator_bar_teammates_only": false,
-    "non_player_glow": false
-  },
-  "config_version": [1, 0]
-}
-```
+## 8. Rules that will bite you
 
-## Commands
+1. **Never use `Entity.getServer()`** — removed in 26.1+. Use `entity.level().getScoreboard()` etc.
+2. **Never toggle entity data directly** (`entity.getEntityData().set(...)`) — it corrupts server-side state and desyncs vanilla. Always inject missing packets (`@ModifyVariable`/`@Redirect`/`@Inject`) instead.
+3. **Mojang mappings only.** All class/method names in code and mixin descriptors are official. `Identifier` is `net.minecraft.resources.Identifier`, not `ResourceLocation`; `net.minecraft.server.permissions.PermissionLevel`, not a Fabric enum.
+4. **Non-glow team changes must not bump `syncEpoch`** — auto-team plugins cause constant membership churn; bumping for non-glow teams would resync the whole server for nothing.
+5. **Idempotent setters or pay the resync cost** (§4.2).
+6. **`config_version` migration must precede `version++`** (§4.3).
+7. **Mixin target classes load on the client too** (`environment: "*"`). Keep this safe: client-side *application* is harmless because the hooked server methods never run there — but never put client-only code in a shared mixin.
+8. **Server-Translations keys live in `data/<modid>/lang/`, not `assets/`** — the server reads the former.
 
-```
-/teamglow on|off|status
-/teamglow team add|remove|list <team>
-/teamglow config list
-/teamglow config locator_bar_teammates_only <true|false>
-/teamglow config non_player_glow <true|false>
-```
+## 9. Workflow
 
-All commands are backed by `glow-my-teammates:command/*` permission nodes (Fabric API `permission.v1`, LuckPerms-compatible); without a permission mod they fall back to vanilla OP checks (OP 2 for on/off/team add/remove/config, none for status/list).
-
-## Roadmap — all implemented (v1.1.0)
-
-All six planned features have been implemented on the **`future-plan`** branch in the order 3 → 5 → 6 → 4 → 2 → 1 (feasibility analysis in the project docs):
-
-1. **Permission nodes** — Fabric API `permission.v1` (`PermissionPredicates.require`); `PermissionLevel` is the **Mojang** enum `net.minecraft.server.permissions.PermissionLevel`, not a Fabric class.
-2. **Remove `§` codes** → `Component.translatable().withStyle()`.
-3. **Unified config sub-command + `config_version`** — `[major, minor]` schema array; coexists with the runtime `version` cache counter (migration runs after parse, before `version++`).
-4. **Server-side translations** — NucleoidMC/Server-Translations; lang files in `data/<modid>/lang/`; the `server-translations-api` version is per-MC-version in `versions/*/gradle.properties` (`3.0.3+26.1` / `3.1.0+26.2`) and bundled via `implementation include(...)`.
-5. **Non-player entity glow** — the `instanceof Player` guards in `ServerEntityMixin` became `!(entity instanceof Player) && !isNonPlayerGlow()`; `getGlowingTeam(Entity)`; gated by the `non_player_glow` switch.
-6. **Locator bar shows teammates only** — `LivingEntityMixin` with MixinExtras `@ModifyReturnValue` on `WaypointTransmitter.makeWaypointConnectionWith`. Note: turned out to need **no** Stonecutter version gates — the interface is identical in 26.1/26.2.
-
-Future work happens on the `future-plan` branch, committing per feature and merging back to `main` when complete.
-
-## Rules for Contributors
-
-- **Do NOT use `Entity.getServer()`** — removed in 26.1+. Use `entity.level().getScoreboard()`.
-- **Do NOT toggle entity data directly** — corrupts state. Inject missing packets via `@ModifyVariable`.
-- The `Synchronizer` inner interface is importable as `ServerEntity.Synchronizer`.
-- **No Yarn mappings.** All class/method names are Mojang (official).
-- **Always commit from VCS version (26.2).** Run `"Reset active project"` before committing to avoid Stonecutter preprocessor noise in Git history.
-- **Future development happens on the `future-plan` branch** — commit per feature, merge back to `main` when a feature is complete.
-- **New version-gated code**: Use `//? if <version> { ... }` syntax. Avoid raw `/* */` comments for versioning.
+- Feature work happens on `future-plan`; commit per feature, merge to `main` when complete.
+- Commit style: conventional commits (`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`), single concern per commit.
+- Before committing: `./gradlew "Reset active project"`, then verify `./gradlew build` (both versions) passes.
+- Future version bumps live in root `gradle.properties` (`mod_version`) — jar names and `fabric.mod.json` follow automatically.

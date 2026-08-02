@@ -1,59 +1,72 @@
 # Glow My Teammates
 
-Team members glow for each other — visible only to teammates.
+Make teammates glow for each other — and decide exactly who sees that glow, on which entities, and whether the locator bar follows the same rules.
 
-## Background
+A server-side Fabric mod for Minecraft 26.1 / 26.2 built on the vanilla `/team` system. No custom team management, no client mod required.
 
-I was playing a custom map that needed teammate glow for better gameplay, but couldn't find any existing mod that does this. So I built it with AI.
+## What it does
 
-## Features
+- Players in the same team see each other glowing (the vanilla `0x40` glow flag, customized per viewer).
+- Glow is opt-in per team: only teams you enable through `/teamglow team add` participate.
+- Nothing about vanilla behavior changes until you enable something.
 
-- Server-side logic — works on dedicated servers, singleplayer and LAN (no client mod needed)
-- Uses vanilla `/team` command system for team management
-- `/teamglow` command controls which teams have glow enabled
-- Config stored in world save folder (`glow-my-teammates.json`), schema-versioned (`config_version`)
-- Does not interfere with vanilla glowing (spectral arrows, potions, etc.)
-- Supports Minecraft 26.1 and 26.2
-- `/team remove` clears glow state immediately — no stale glow left on clients
-- Config is saved atomically; save failures are reported to the admin in chat
-- Membership changes in non-glow teams don't trigger unnecessary server-wide resyncs
-- **Permission nodes** via Fabric API `permission.v1` (LuckPerms-compatible), falling back to vanilla OP levels
-- **Server-side translations** — messages are translated on the server, works for vanilla clients
-- **Non-player entity glow** — mobs in glowing teams glow (behind the `non_player_glow` switch)
-- **Locator bar filter** — glow-enabled teams hide each other on the locator bar (behind the `locator_bar_teammates_only` switch)
+## Feature overview
+
+| Feature | How to enable |
+|---|---|
+| Team glow for players | `/teamglow team add <team>` |
+| Glow for non-player entities (mobs) | `/teamglow config non_player_glow true` |
+| Locator bar: glow-enabled teams hide each other | `/teamglow config locator_bar_teammates_only true` |
+| Fine-grained command permissions | Any LuckPerms-compatible permission mod |
+
+## Requirements
+
+| | Minecraft 26.1 | Minecraft 26.2 |
+|---|---|---|
+| Fabric Loader | >= 0.18.4 | >= 0.19.3 |
+| Fabric API | any | any |
+| Java | >= 25 | >= 25 |
+
+Works on dedicated servers, singleplayer and LAN worlds. The mod also loads on the client side of a singleplayer session, but all logic runs on the integrated server — vanilla clients on a server can connect without installing anything.
+
+## Quick start
+
+1. Create teams with vanilla commands:
+   ```
+   /team add red
+   /team join red @a
+   ```
+2. Enable glow for the team:
+   ```
+   /teamglow team add red
+   ```
+3. Done — teammates now glow for each other.
 
 ## Commands
 
-Every command is backed by a permission node (`glow-my-teammates:command/...`), compatible with LuckPerms. Without a permission mod, commands fall back to vanilla OP levels — management commands require OP level 2, status/list require nothing.
+Every command is gated by a permission node under `glow-my-teammates:command/...`, compatible with LuckPerms. Without a permission mod, commands fall back to vanilla OP checks: management commands need OP level 2, read-only commands are available to everyone.
 
 | Command | Permission node (fallback) | Description |
 |---|---|---|
 | `/teamglow on` | `command/on` (OP 2) | Enable team glow globally |
 | `/teamglow off` | `command/off` (OP 2) | Disable team glow globally |
-| `/teamglow status` | `command/status` (everyone) | Show current state and enabled teams |
+| `/teamglow status` | `command/status` (all) | Show global state and enabled teams |
 | `/teamglow team add <team>` | `command/team/add` (OP 2) | Enable glow for a team |
 | `/teamglow team remove <team>` | `command/team/remove` (OP 2) | Disable glow for a team |
-| `/teamglow team list` | `command/team/list` (everyone) | List all teams with glow enabled |
-| `/teamglow config list` | `command/config` (OP 2) | Show feature switches |
+| `/teamglow team list` | `command/team/list` (all) | List teams with glow enabled |
+| `/teamglow config list` | `command/config` (OP 2) | Show current feature switches |
 | `/teamglow config <switch> <true\|false>` | `command/config` (OP 2) | Toggle a feature switch |
 
 ### Feature switches
 
 | Switch | Default | Effect |
 |---|---|---|
-| `non_player_glow` | `false` | When on, mobs in glowing teams glow too (mob-dense farms pay per-dirty-packet overhead — keep off unless needed) |
-| `locator_bar_teammates_only` | `false` | When on, a viewer in a glow-enabled team hides members of other glow-enabled teams on the locator bar; same-team, non-glow and teamless players stay visible. Viewers outside glow teams see everyone |
+| `non_player_glow` | `false` | When on, mobs that are in a glow-enabled team glow for their teammates. Note: with this on, every dirty entity-data packet of every tracked entity goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
+| `locator_bar_teammates_only` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **hides members of other glow-enabled teams** (competitors), while same-team members, non-glow teams and teamless players stay visible. Viewers who are not in a glow-enabled team see everyone, unchanged. |
 
-## Usage
+## Config file
 
-1. Create teams and add members with vanilla commands: `/team add <name>`, `/team join <name>`
-2. Enable glow: `/teamglow team add <name>`
-3. Teammates automatically see each other glowing
-4. Optional: turn on mob glow (`/teamglow config non_player_glow true`) and/or the locator bar filter (`/teamglow config locator_bar_teammates_only true`)
-
-## Config
-
-Located in the world save folder: `<world>/glow-my-teammates.json`
+Stored per world at `<world>/glow-my-teammates.json`:
 
 ```json
 {
@@ -67,24 +80,20 @@ Located in the world save folder: `<world>/glow-my-teammates.json`
 }
 ```
 
-Legacy configs (without `config_version`) are migrated automatically on first load.
+- `config_version` is the disk schema version. Configs written before it existed are migrated automatically on first load — you never have to edit the file by hand.
+- Edits made by commands are written atomically (temp file + atomic move); if writing fails, you are told in chat instead of silently losing the change.
 
-## Dependencies
+## How it interacts with vanilla
 
-| | Minecraft 26.1 | Minecraft 26.2 |
-|---|---|---|
-| Fabric Loader | >= 0.18.4 | >= 0.19.3 |
-| Fabric API | Any | Any |
-| Java | >= 25 | >= 25 |
+- **Vanilla glowing is untouched.** Spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work — the mod only adds or clears its own bit on top.
+- **`/team remove <team>` cleans up immediately.** When a team is deleted, viewers stop seeing the glow right away (no stale glow until re-login).
+- **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations mean even command feedback shows readable text on vanilla clients.
 
-The [Server-Translations API](https://maven.nucleoid.xyz/xyz/nucleoid/server-translations-api/) is bundled into the mod jar — no extra install needed.
+## Building from source
 
-## Building
-
-This mod uses [Stonecutter](https://stonecutter.kikugie.dev/) to target multiple Minecraft versions from a single codebase.
+This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported Minecraft versions from one codebase.
 
 ```bash
-# Build all versions
 ./gradlew build
 ```
 
@@ -92,23 +101,11 @@ Output:
 - `versions/26.1/build/libs/glow-my-teammates-1.1.0+26.1.jar`
 - `versions/26.2/build/libs/glow-my-teammates-1.1.0+26.2.jar`
 
-## Changelog
+The Server-Translations API dependency is bundled into the jar — a single jar is all you need to install.
 
-**v1.1.0** — all roadmap features implemented:
-- Permission nodes (Fabric API `permission.v1`, LuckPerms-compatible)
-- Removed `§` format codes in favor of `Component` styles
-- `/teamglow config` sub-command + schema versioning (`config_version`)
-- Server-side translations (NucleoidMC Server-Translations)
-- Non-player entity glow (behind `non_player_glow` switch)
-- Locator bar filter (behind `locator_bar_teammates_only` switch)
+## Built with
 
-Development happens on the `future-plan` branch and lands on `main` feature by feature.
-
-## Author
-
-ZnianXgang
-
-Built with [OpenCode](https://opencode.ai) using DeepSeek V4.
+This mod was built with [OpenCode](https://opencode.ai) and [Claude Code](https://claude.com/claude-code) using the DeepSeek V4 model.
 
 ## License
 
