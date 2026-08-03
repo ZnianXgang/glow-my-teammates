@@ -66,7 +66,7 @@ Every command is gated by a permission node under `glow-my-teammates.command.*`,
 
 ## Config file
 
-Stored per world at `<world>/glow-my-teammates.json`:
+Stored per world at `<world>/glow-my-teammates.json`. Example for mod version **1.1.1** (config schema `[1, 1]`):
 
 ```json
 {
@@ -75,7 +75,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
     "red",
     "blue"
   ],
-  "configVersion": [1, 0],
+  "configVersion": [1, 1],
   "config": {
     "locatorBarTeammatesOnly": false,
     "nonPlayerGlow": false

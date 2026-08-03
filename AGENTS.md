@@ -95,7 +95,7 @@ Every setter (`setEnabled`, `addTeam`, `removeTeam`, `setLocatorBarHideOtherGlow
 
 1. Parse JSON into `ConfigData` (fields `configVersion`/`config` default to `null` = legacy marker).
 2. Read the `config` sub-object into the singleton fields.
-3. If `configVersion` is missing (legacy), call `save()` to rewrite the file with `[1, 0]`.
+3. If `configVersion` is missing (legacy), call `save()` to rewrite the file with `[1, 1]`.
 4. Only then `version++`.
 
 Step 3 must run **before** step 4: the migration write is itself a config change, and the cache-invalidation semantics depend on the counter reflecting it. Adding a new switch later = minor bump only, no migration code, Gson fills the default.
