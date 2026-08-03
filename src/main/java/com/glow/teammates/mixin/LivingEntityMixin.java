@@ -12,15 +12,15 @@ import org.spongepowered.asm.mixin.injection.At;
 import java.util.Optional;
 
 /**
- * Filters the locator bar so that members of glow-enabled teams hide each
- * other (except their own team), while players outside glow-enabled teams
- * (teamless or in non-glow teams) see everyone.
+ * Filters the locator bar so that a viewer in a glow-enabled team sees only
+ * their own teammates, while players outside glow-enabled teams (teamless or
+ * in non-glow teams) see everyone.
  *
  * <p>Semantics (asymmetric, receiver-driven): when {@code this} (the entity
- * being displayed) belongs to a <em>different</em> glow-enabled team than the
- * {@code receiver} (the viewer), no waypoint connection is created — the
- * viewer's locator bar hides it. Same-team glow members, non-glow teams and
- * teamless players are always shown.
+ * being displayed) is not on the {@code receiver}'s (the viewer's) team, no
+ * waypoint connection is created — the viewer's locator bar hides it. Only
+ * same-team members are shown to a viewer in a glow-enabled team; members of
+ * other teams (glow-enabled or not) and teamless entities are hidden.
  *
  * <p>The locator bar connects are only created server-side by
  * {@code ServerWaypointManager.createConnection}, which invokes this method
@@ -35,7 +35,7 @@ public abstract class LivingEntityMixin {
             Optional<WaypointTransmitter.Connection> original, ServerPlayer receiver) {
 
         GlowConfigManager config = GlowConfigManager.getInstance();
-        if (!config.isEnabled() || !config.isLocatorBarHideOtherGlowingTeams()) {
+        if (!config.isEnabled() || !config.isLocatorBarTeammatesOnly()) {
             return original; // Mod off or feature off — vanilla behavior.
         }
 
@@ -46,13 +46,14 @@ public abstract class LivingEntityMixin {
             return original;
         }
 
-        // A viewer in a glow-enabled team hides members of OTHER glow-enabled
-        // teams (treated as competitors); same-team, non-glow and teamless
-        // entities stay visible.
+        // A viewer in a glow-enabled team sees ONLY its own teammates: every
+        // other entity — members of other teams (glow-enabled or not) and
+        // teamless entities — is hidden from the locator bar. Since
+        // receiverTeam is glow-enabled, equals() implies myTeam is the same
+        // (glow-enabled) team, so no further team check is needed.
         LivingEntity self = (LivingEntity) (Object) this;
         PlayerTeam myTeam = self.getTeam();
-        if (myTeam != null && config.isTeamEnabled(myTeam.getName())
-                && !myTeam.equals(receiverTeam)) {
+        if (!receiverTeam.equals(myTeam)) {
             return Optional.empty();
         }
         return original;

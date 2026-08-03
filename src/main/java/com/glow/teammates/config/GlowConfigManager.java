@@ -2,6 +2,8 @@ package com.glow.teammates.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.glow.teammates.GlowMyTeammates;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
@@ -52,10 +54,10 @@ public class GlowConfigManager {
     private long syncEpoch;
 
     /**
-     * Whether the locator bar hides members of other glow-enabled teams
-     * (feature: locator bar filter). Default {@code false}.
+     * Whether a viewer in a glow-enabled team sees only their own teammates
+     * on the locator bar (feature: locator bar filter). Default {@code false}.
      */
-    private boolean locatorBarHideOtherGlowingTeams;
+    private boolean locatorBarTeammatesOnly;
 
     /**
      * Whether non-player entities (mobs) are eligible for team glow.
@@ -78,9 +80,11 @@ public class GlowConfigManager {
         File file = configPath.toFile();
 
         if (file.exists()) {
-            try (Reader reader = new InputStreamReader(
-                    Files.newInputStream(file.toPath()), StandardCharsets.UTF_8)) {
-                ConfigData data = GSON.fromJson(reader, ConfigData.class);
+            try {
+                // Read the raw text once: the 1.1.1 schema migration needs to
+                // inspect the old key name that Gson would silently drop.
+                String rawJson = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+                ConfigData data = GSON.fromJson(rawJson, ConfigData.class);
                 if (data != null) {
                     this.enabled = data.enabled;
                     this.enabledTeams.clear();
@@ -95,23 +99,26 @@ public class GlowConfigManager {
                         }
                     }
                     if (data.config != null) {
-                        this.locatorBarHideOtherGlowingTeams = data.config.locatorBarHideOtherGlowingTeams;
+                        this.locatorBarTeammatesOnly = data.config.locatorBarTeammatesOnly;
                         this.nonPlayerGlow = data.config.nonPlayerGlow;
                     } else {
                         // Legacy config (no `config` sub-object): explicitly
                         // reset to defaults — never inherit a previous world's
                         // switch state from the process-wide singleton.
-                        this.locatorBarHideOtherGlowingTeams = false;
+                        this.locatorBarTeammatesOnly = false;
                         this.nonPlayerGlow = false;
                     }
                     // Schema migration: configs written before config_version
                     // existed have a null version array — treat them as legacy
-                    // (major 0) and rewrite with the current schema. Runs before
-                    // version++ so the migration write keeps the cache-invalidation
-                    // semantics intact (the config did change: new fields appeared).
+                    // (major 0) and rewrite with the current schema. The 1.1.1
+                    // rename (locatorBarHideOtherGlowingTeams →
+                    // locatorBarTeammatesOnly) also rewrites the file so the
+                    // old key is dropped. Runs before version++ so the
+                    // migration write keeps the cache-invalidation semantics
+                    // intact (the config did change).
                     int major = (data.configVersion == null || data.configVersion.length == 0)
                             ? 0 : data.configVersion[0];
-                    if (major < 1) {
+                    if (major < 1 || migrateLocatorBarSwitchName(rawJson)) {
                         save();
                     }
                     this.version++;
@@ -125,8 +132,8 @@ public class GlowConfigManager {
                     resetToDefaultsAndPersist();
                 }
                 GlowMyTeammates.LOGGER.info(
-                        "Loaded config: enabled={}, teams={}, locator_bar_hide_other_glowing_teams={}, non_player_glow={}",
-                        enabled, enabledTeams, locatorBarHideOtherGlowingTeams, nonPlayerGlow);
+                        "Loaded config: enabled={}, teams={}, locator_bar_teammates_only={}, non_player_glow={}",
+                        enabled, enabledTeams, locatorBarTeammatesOnly, nonPlayerGlow);
             } catch (Exception e) {
                 GlowMyTeammates.LOGGER.error("Failed to load config, using defaults", e);
                 resetToDefaultsAndPersist();
@@ -139,10 +146,42 @@ public class GlowConfigManager {
             // otherwise leak teams into this new world's config file).
             this.enabled = true;
             this.enabledTeams.clear();
-            this.locatorBarHideOtherGlowingTeams = false;
+            this.locatorBarTeammatesOnly = false;
             this.nonPlayerGlow = false;
             this.version++;
             save();
+        }
+    }
+
+    /**
+     * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams} to the
+     * renamed {@code locatorBarTeammatesOnly}. Gson silently ignores unknown
+     * keys during deserialization, so the old key has to be inspected on the
+     * raw JSON text. No-op unless the old key exists and the new one does not;
+     * returns whether the file needs a rewrite to drop the old key.
+     */
+    private boolean migrateLocatorBarSwitchName(String rawJson) {
+        try {
+            JsonObject root = JsonParser.parseString(rawJson).getAsJsonObject();
+            JsonObject configObj = root.getAsJsonObject("config");
+            if (configObj == null || !configObj.has("locatorBarHideOtherGlowingTeams")
+                    || configObj.has("locatorBarTeammatesOnly")) {
+                return false;
+            }
+            boolean oldValue = configObj.get("locatorBarHideOtherGlowingTeams").getAsBoolean();
+            if (oldValue) {
+                this.locatorBarTeammatesOnly = true;
+            }
+            GlowMyTeammates.LOGGER.info(
+                    "Migrated config: locatorBarHideOtherGlowingTeams={} → locatorBarTeammatesOnly",
+                    oldValue);
+            return true;
+        } catch (Exception e) {
+            // A malformed config is handled by the caller's fallback; here we
+            // only fail the migration, not the whole load.
+            GlowMyTeammates.LOGGER.warn(
+                    "Failed to inspect config for locator-bar switch migration", e);
+            return false;
         }
     }
 
@@ -156,7 +195,7 @@ public class GlowConfigManager {
     private void resetToDefaultsAndPersist() {
         this.enabled = true;
         this.enabledTeams.clear();
-        this.locatorBarHideOtherGlowingTeams = false;
+        this.locatorBarTeammatesOnly = false;
         this.nonPlayerGlow = false;
         save();
         this.version++;
@@ -177,9 +216,9 @@ public class GlowConfigManager {
         try {
             Files.createDirectories(configPath.getParent());
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
-            data.configVersion = new int[]{1, 0};
+            data.configVersion = new int[]{1, 1};
             ConfigSubData subConfig = new ConfigSubData();
-            subConfig.locatorBarHideOtherGlowingTeams = this.locatorBarHideOtherGlowingTeams;
+            subConfig.locatorBarTeammatesOnly = this.locatorBarTeammatesOnly;
             subConfig.nonPlayerGlow = this.nonPlayerGlow;
             data.config = subConfig;
             try (Writer writer = new OutputStreamWriter(
@@ -301,20 +340,20 @@ public class GlowConfigManager {
         return removed;
     }
 
-    public boolean isLocatorBarHideOtherGlowingTeams() {
-        return locatorBarHideOtherGlowingTeams;
+    public boolean isLocatorBarTeammatesOnly() {
+        return locatorBarTeammatesOnly;
     }
 
     /**
-     * Whether the locator bar hides members of other glow-enabled teams.
-     * Idempotent — no-op when the value is unchanged, to avoid a spurious
-     * version bump and the resulting full-server resync.
+     * Whether a viewer in a glow-enabled team sees only their own teammates
+     * on the locator bar. Idempotent — no-op when the value is unchanged, to
+     * avoid a spurious version bump and the resulting full-server resync.
      */
-    public void setLocatorBarHideOtherGlowingTeams(boolean locatorBarHideOtherGlowingTeams) {
-        if (this.locatorBarHideOtherGlowingTeams == locatorBarHideOtherGlowingTeams) {
+    public void setLocatorBarTeammatesOnly(boolean locatorBarTeammatesOnly) {
+        if (this.locatorBarTeammatesOnly == locatorBarTeammatesOnly) {
             return;
         }
-        this.locatorBarHideOtherGlowingTeams = locatorBarHideOtherGlowingTeams;
+        this.locatorBarTeammatesOnly = locatorBarTeammatesOnly;
         this.version++;
     }
 
@@ -365,7 +404,7 @@ public class GlowConfigManager {
     }
 
     public static class ConfigSubData {
-        boolean locatorBarHideOtherGlowingTeams = false;
+        boolean locatorBarTeammatesOnly = false;
         boolean nonPlayerGlow = false;
 
         ConfigSubData() {}

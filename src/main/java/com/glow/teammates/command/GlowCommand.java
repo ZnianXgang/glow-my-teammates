@@ -142,15 +142,15 @@ public final class GlowCommand {
                         PermissionLevel.GAMEMASTERS))
                 .executes(ctx -> listConfig(ctx.getSource()));
 
-        // /teamglow config locator_bar_hide_other_glowing_teams <true|false>
-        configNode.then(Commands.literal("locator_bar_hide_other_glowing_teams")
+        // /teamglow config locator_bar_teammates_only <true|false>
+        configNode.then(Commands.literal("locator_bar_teammates_only")
                 .then(Commands.argument("value", BoolArgumentType.bool())
                         .executes(ctx -> setConfigSwitch(
                                 ctx.getSource(),
-                                "locator_bar_hide_other_glowing_teams",
+                                "locator_bar_teammates_only",
                                 BoolArgumentType.getBool(ctx, "value"),
-                                () -> GlowConfigManager.getInstance().isLocatorBarHideOtherGlowingTeams(),
-                                GlowConfigManager.getInstance()::setLocatorBarHideOtherGlowingTeams,
+                                () -> GlowConfigManager.getInstance().isLocatorBarTeammatesOnly(),
+                                GlowConfigManager.getInstance()::setLocatorBarTeammatesOnly,
                                 true, false))));
 
         // /teamglow config non_player_glow <true|false>
@@ -186,7 +186,7 @@ public final class GlowCommand {
     private static int setEnabled(CommandSourceStack source, boolean enabled) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         boolean oldValue = config.isEnabled();
-        boolean waypointsAffected = config.isLocatorBarHideOtherGlowingTeams()
+        boolean waypointsAffected = config.isLocatorBarTeammatesOnly()
                 && oldValue != enabled;
         config.setEnabled(enabled);
         if (!config.save()) {
@@ -253,7 +253,7 @@ public final class GlowCommand {
         // Team glow eligibility feeds the locator-bar filter — rebuild the
         // waypoint connections so already-established ones are re-evaluated
         // immediately instead of lingering under the old rules.
-        if (config.isLocatorBarHideOtherGlowingTeams()) {
+        if (config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
@@ -293,7 +293,7 @@ public final class GlowCommand {
         // Same re-evaluation as addTeam: removing a team from the glow config
         // must let existing (previously filtered) locator-bar connections
         // appear right away.
-        if (config.isLocatorBarHideOtherGlowingTeams()) {
+        if (config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
@@ -326,8 +326,8 @@ public final class GlowCommand {
 
     private static int listConfig(CommandSourceStack source) {
         GlowConfigManager config = GlowConfigManager.getInstance();
-        String info = "\n  locator_bar_hide_other_glowing_teams = "
-                + config.isLocatorBarHideOtherGlowingTeams()
+        String info = "\n  locator_bar_teammates_only = "
+                + config.isLocatorBarTeammatesOnly()
                 + "\n  non_player_glow = " + config.isNonPlayerGlow();
         source.sendSuccess(
                 () -> Component.translatable("glow.teammates.config.list",
@@ -369,7 +369,7 @@ public final class GlowCommand {
 
     /**
      * Rebuild every locator-bar waypoint connection so the
-     * {@code locator_bar_hide_other_glowing_teams} filter takes effect
+     * {@code locator_bar_teammates_only} filter takes effect
      * immediately. Mirrors what vanilla {@code ServerScoreboard.updateTeamWaypoints}
      * does on team membership changes.
      *

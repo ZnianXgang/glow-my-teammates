@@ -109,7 +109,7 @@ MixinExtras `@ModifyReturnValue` on `LivingEntity.makeWaypointConnectionWith(Ser
 Semantics are **asymmetric and receiver-driven**:
 1. Switch off → return `original` (vanilla).
 2. Receiver not in a glow-enabled team (teamless or non-glow team) → return `original` (sees everyone).
-3. Receiver in a glow-enabled team → hide members of *other* glow-enabled teams (`myTeam` glow-enabled and `!myTeam.equals(receiverTeam)` → `Optional.empty()`); same-team, non-glow and teamless stay visible.
+3. Receiver in a glow-enabled team → only same-team members stay visible; every other entity — members of other teams (glow-enabled or not) and teamless entities — is hidden (`!receiverTeam.equals(myTeam)` → `Optional.empty()`). No separate glow check on `myTeam` is needed: `equals(receiverTeam)` already implies the same glow-enabled team.
 
 Toggling the switch rebuilds connections immediately from `GlowCommand`: `ServerLevel.getWaypointManager().remakeConnections(player)` for every player in every dimension — the same call vanilla `ServerScoreboard.updateTeamWaypoints` makes on team changes.
 
@@ -127,7 +127,7 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 │   └── list                    glow-my-teammates.command.team.list   (fallback: all)
 └── config                       glow-my-teammates.command.config     (fallback OP 2)
     ├── (no argument → list)     same node
-    ├── locator_bar_hide_other_glowing_teams <bool>   same node
+    ├── locator_bar_teammates_only <bool>        same node
     └── non_player_glow <bool>              same node
 ```
 

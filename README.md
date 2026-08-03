@@ -16,7 +16,7 @@ A server-side Fabric mod for Minecraft 26.1 / 26.2 built on the vanilla `/team` 
 |---|---|
 | Team glow for players | `/teamglow team add <team>` |
 | Glow for non-player entities (mobs) | `/teamglow config non_player_glow true` |
-| Locator bar: glow-enabled teams hide each other | `/teamglow config locator_bar_hide_other_glowing_teams true` |
+| Locator bar: viewers in glow-enabled teams see only teammates | `/teamglow config locator_bar_teammates_only true` |
 | Fine-grained command permissions | Any LuckPerms-compatible permission mod |
 
 ## Requirements
@@ -62,7 +62,7 @@ Every command is gated by a permission node under `glow-my-teammates.command.*`,
 | Switch | Default | Effect |
 |---|---|---|
 | `non_player_glow` | `false` | When on, mobs that are in a glow-enabled team glow for their teammates. Note: with this on, every dirty entity-data packet of every tracked entity goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
-| `locator_bar_hide_other_glowing_teams` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **hides members of other glow-enabled teams** (competitors), while same-team members, non-glow teams and teamless players stay visible. Viewers who are not in a glow-enabled team see everyone, unchanged. |
+| `locator_bar_teammates_only` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **sees only their own teammates** — members of other teams (glow-enabled or not) and teamless players are hidden from their locator bar. Viewers who are not in a glow-enabled team see everyone, unchanged. |
 
 ## Config file
 
@@ -77,7 +77,7 @@ Stored per world at `<world>/glow-my-teammates.json`:
   ],
   "configVersion": [1, 0],
   "config": {
-    "locatorBarHideOtherGlowingTeams": false,
+    "locatorBarTeammatesOnly": false,
     "nonPlayerGlow": false
   }
 }
@@ -103,8 +103,8 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both 
 ```
 
 Output:
-- `versions/26.1/build/libs/glow-my-teammates-1.1.0+26.1.jar`
-- `versions/26.2/build/libs/glow-my-teammates-1.1.0+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.1.1+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.1.1+26.2.jar`
 
 The Server-Translations API dependency is bundled into the jar — a single jar is all you need to install.
 
