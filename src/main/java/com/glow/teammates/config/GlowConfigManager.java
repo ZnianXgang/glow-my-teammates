@@ -329,6 +329,12 @@ public class GlowConfigManager {
         return enabledTeams.contains(teamName);
     }
 
+    /**
+     * Deliberately <em>not</em> idempotent (unlike the other setters): the
+     * caller must guard against already-enabled teams before calling, which
+     * {@link com.glow.teammates.command.GlowCommand#addTeam} does. See
+     * AGENTS.md §4.2 — do not add a second unguarded call path.
+     */
     public void addTeam(String teamName) {
         enabledTeams.add(teamName);
         this.version++;
