@@ -24,6 +24,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.scores.PlayerTeam;
 
 import java.util.ArrayList;
@@ -377,9 +378,18 @@ public final class GlowCommand {
      * transmit waypoints by default ({@code WAYPOINT_TRANSMIT_RANGE} defaults
      * to 0), so this is sufficient unless a third-party mod raises that
      * attribute.
+     *
+     * <p>If the locator-bar game rule is off, no receiver can have connections,
+     * so skip the whole rebuild for that dimension.
      */
     private static void rebuildWaypointConnections(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
+            // No locator-bar receivers exist when the game rule is off — every
+            // createConnection would bail at isLocatorBarEnabledFor, so skip
+            // the whole rebuild for this dimension.
+            if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
+                continue;
+            }
             ServerWaypointManager waypointManager = level.getWaypointManager();
             for (ServerPlayer player : level.players()) {
                 waypointManager.remakeConnections(player);
