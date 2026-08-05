@@ -204,8 +204,14 @@ public abstract class ServerEntityMixin {
 
         // Vanilla glow (spectral arrows, potions, setGlowingTag) already covers
         // the viewer — same rule as redirectSendData, so both paths judge
-        // uniformly and the OR-ing here stays a no-op.
-        if (entity instanceof LivingEntity living && living.isCurrentlyGlowing()) {
+        // uniformly and the OR-ing here stays a no-op. Non-living entities
+        // (item frames, boats...) have no effect — only the glow tag can be
+        // set, so check the same shared-flags bit directly.
+        boolean vanillaGlow = entity instanceof LivingEntity living
+                ? living.isCurrentlyGlowing()
+                : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
+                        & GlowConstants.FLAG_GLOWING) != 0;
+        if (vanillaGlow) {
             return;
         }
 
