@@ -148,8 +148,8 @@ public class GlowConfigManager {
             this.enabledTeams.clear();
             this.locatorBarTeammatesOnly = false;
             this.nonPlayerGlow = false;
-            this.version++;
             save();
+            this.version++;
         }
     }
 
