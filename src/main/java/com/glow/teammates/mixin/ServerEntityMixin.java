@@ -220,10 +220,7 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        Scoreboard scoreboard = viewer.level().getScoreboard();
-        PlayerTeam viewerTeam = scoreboard.getPlayersTeam(
-                viewer.getScoreboardName());
-        boolean isTeammate = glowingTeam.equals(viewerTeam);
+        boolean isTeammate = glowingTeam.equals(viewer.getTeam());
 
         if (!isTeammate) {
             // Prevent smartForcePacket from redundantly forcing later.
@@ -399,11 +396,8 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        Predicate<ServerPlayer> isTeammate = viewer -> {
-            PlayerTeam viewerTeam = viewer.level().getScoreboard()
-                    .getPlayersTeam(viewer.getScoreboardName());
-            return entityTeamObj.equals(viewerTeam);
-        };
+        Predicate<ServerPlayer> isTeammate =
+                viewer -> entityTeamObj.equals(viewer.getTeam());
 
         ClientboundSetEntityDataPacket glowPacket = modifyGlowFlag(
                 dataPacket, true);
