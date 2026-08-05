@@ -194,12 +194,19 @@ A membership change in any glow-enabled team bumps the shared `syncEpoch`, and e
 - **Per-team granularity is a correctness liability.** Splitting `syncEpoch` per team would force tracking viewer-side changes too (a viewer switching teams changes which entities need resyncing) — the global epoch handles that for free.
 - **The real guard is the default.** `non_player_glow` defaults off and the README warns against mob-dense farms; the one configuration that could make this cost visible is disabled by default. Keep it that way.
 
+The "one-shot per bump" bill only covers *quiet* entities. `smartForcePacket` only fires when `packDirty()` returned `null`; a continuously-dirty glowing entity (AIR_SUPPLY, ON_FIRE, frozen ticks, a mob farm) never takes that path — its per-packet cost is a standing one (see §10.2) that does not increase on a bump. And entities that are not in a glow team broadcast nothing on a bump: the never-glow bail syncs their caches and returns `null`.
+
 ### 10.2 Per-packet scoreboard lookups are accepted
 
 Once any team has glow enabled, every dirty entity-data send performs one `getPlayersTeam` lookup per entity (a single `getGlowingTeam` call, hoisted out of the per-viewer predicate) plus one per viewer in the `isTeammate` predicate. Accepted because:
 
 - Each lookup is an O(1) hash probe, sub-microsecond, dwarfed by the two packet allocations and network writes every dirty send already pays.
 - Caching the entity's team on the `ServerEntity` would need precise invalidation, but the global `syncEpoch` cannot distinguish "the entity switched teams" from "a viewer switched teams" — the cache would go stale or be discarded on every bump, i.e. useless.
+
+Two clarifications from the 26.1/26.2 source audit:
+
+- The per-viewer lookups only happen for entities that *are* in a glow team (`entityTeamObj != null`). An entity outside all glow teams costs exactly one `getPlayersTeam` probe and then forwards — zero per-viewer work.
+- The viewer lookup is written as `viewer.getTeam()`, which is `Entity.getTeam()` = `level().getScoreboard().getPlayersTeam(getScoreboardName())` — identical to the inline version, no extra indirection.
 
 ### 10.3 `clearNonPlayerGlow` is a one-shot command
 
