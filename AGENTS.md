@@ -22,13 +22,14 @@ src/main/resources/
   glow-my-teammates.mixins.json     Registers the 4 mixins below
   data/glow-my-teammates/lang/      en_us.json + zh_cn.json — translated server-side (Server-Translations API)
 src/main/java/com/glow/teammates/
-  GlowMyTeammates.java              ModInitializer: hooks SERVER_STARTED + command registration
+  GlowMyTeammates.java              ModInitializer: hooks SERVER_STARTED/SERVER_STOPPING + command registration
   GlowConstants.java                Shared glow flag constants (0x40 / 0xBF) — plain class, see rule §8.9
-  config/GlowConfigManager.java     Singleton holding all runtime state + JSON persistence
+  WaypointSync.java                 Locator-bar connection rebuilds (command-wide + per-affected-player, see §5)
+  config/GlowConfigManager.java     Singleton holding all runtime state + JSON persistence + server reference
   command/GlowCommand.java          /teamglow tree
   mixin/
     ServerEntityMixin.java          Core glow engine (3 injection points, see §3.2)
-    ScoreboardMixin.java            Team-membership change detection → syncEpoch
+    ScoreboardMixin.java            Team-membership change detection → syncEpoch + waypoint rebuild
     LivingEntityMixin.java          Locator-bar filter (MixinExtras @ModifyReturnValue)
     EntityAccessor.java             @Accessor for Entity.DATA_SHARED_FLAGS_ID
 ```
@@ -72,14 +73,16 @@ The old explicit self-send was deleted: `ChunkMap.TrackedEntity.updatePlayer` ex
 
 ### 3.3 Viewer-side team changes (`ScoreboardMixin`)
 
-Three `@Inject`s funnel into one `onTeamChange(PlayerTeam)` which bumps `syncEpoch` **only for glow-enabled teams** (and only while the mod is enabled):
+Three `@Inject`s funnel into one `onTeamChange(PlayerTeam, Collection<String>)` which bumps `syncEpoch` **only for glow-enabled teams** (and only while the mod is enabled), and additionally rebuilds the affected players' locator-bar connections when `locator_bar_teammates_only` is on (see §5):
 - `Scoreboard.addPlayerToTeam(String, PlayerTeam)` (RETURN, checks the return value)
 - `Scoreboard.removePlayerFromTeam(String, PlayerTeam)` (two-arg, RETURN) — the single-arg overload is deliberately NOT hooked: on success it internally calls the two-arg version, so hooking both would double-bump
-- `Scoreboard.removePlayerTeam(PlayerTeam)` — required: `/team remove` clears `teamsByPlayer` directly, bypassing both hooks above. Without it, glow would linger forever on viewers.
+- `Scoreboard.removePlayerTeam(PlayerTeam)` — required: `/team remove` clears `teamsByPlayer` directly, bypassing both hooks above. Without it, glow would linger forever on viewers. This one passes the whole `team.getPlayers()` list — `removePlayerTeam` never empties the team's own player set (vanilla's own `ServerScoreboard.onTeamRemoved` relies on the same fact), so every member gets their waypoint connections rebuilt.
 
 All three carry explicit method descriptors so future overload additions can't silently break them.
 
 The two-arg `removePlayerFromTeam` **throws `IllegalStateException`** when the player is not a member of the given team (it does *not* no-op) — so the RETURN hook only ever fires for real removals. Do not "simplify" the hook based on an assumption of silent no-ops.
+
+The waypoint rebuild needs the running server; `GlowConfigManager` holds a `MinecraftServer` reference set in `loadFromWorld` and cleared on `SERVER_STOPPING` (`Entity.getServer()` is gone in 26.1+, rule §8.1).
 
 ## 4. Config & invalidation model (`GlowConfigManager`)
 
@@ -121,7 +124,13 @@ Semantics are **asymmetric and receiver-driven**:
 2. Receiver not in a glow-enabled team (teamless or non-glow team) → return `original` (sees everyone).
 3. Receiver in a glow-enabled team → only same-team members stay visible; every other entity — members of other teams (glow-enabled or not) and teamless entities — is hidden (`!receiverTeam.equals(myTeam)` → `Optional.empty()`). No separate glow check on `myTeam` is needed: `equals(receiverTeam)` already implies the same glow-enabled team.
 
-Toggling the switch rebuilds connections immediately from `GlowCommand`: `ServerLevel.getWaypointManager().remakeConnections(player)` for every player in every dimension — the same call vanilla `ServerScoreboard.updateTeamWaypoints` makes on team changes.
+Connection re-evaluation (`WaypointSync`, all methods server-thread only):
+
+- **Filter rules changed** (switch toggles, `team add/remove`, `on|off`): `WaypointSync.rebuildAll` rebuilds every player-transmitted connection in every dimension. Command path in `GlowCommand`.
+- **Team membership changed** while the switch is on: `ScoreboardMixin` calls `WaypointSync.rebuildForPlayer` for each affected player, rebuilding every player-sent connection in that player's dimension. This is required because the filter is **receiver-driven** — vanilla's own team-change rebuilds (`ServerScoreboard.updatePlayerWaypoint` / `updateTeamWaypoints`) only cover the changed player as a *sender*; without the mod's receiver-side pass, the changed player's own bar would keep showing non-teammates until a connection happens to turn `isBroken()` (distance/chunk changes), which may never happen for an AFK player.
+- `rebuildForPlayer` dedupes per dimension per tick (`ServerLevel.getGameTime()` in an `IdentityHashMap`): a burst of membership changes in one tick collapses into one rebuild, since the first rebuild already re-evaluates every connection in the dimension. The map is cleared on `SERVER_STOPPING` so unloaded dimension instances don't linger across integrated-server restarts.
+
+The rebuild call itself is `ServerLevel.getWaypointManager().remakeConnections(player)` — the same call vanilla `ServerScoreboard.updateTeamWaypoints` makes on team changes. Only player transmitters are rebuilt; non-player entities do not transmit waypoints by default (`WAYPOINT_TRANSMIT_RANGE` defaults to 0).
 
 No Stonecutter version gates needed: the interface signature is identical in 26.1/26.2 (the `LocatorBarRenderer` vs `LocatorBar` client-class difference only matters for the client-side filtering route, which was intentionally not taken). MixinExtras is compile-time only (`compileOnly io.github.llamalad7:mixinextras-fabric:0.5.4`); the runtime is bundled with fabric-loader.
 

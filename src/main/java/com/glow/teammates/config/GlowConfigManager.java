@@ -41,6 +41,15 @@ public class GlowConfigManager {
     private Path configPath;
 
     /**
+     * The running server, set by {@link #loadFromWorld} and cleared on
+     * {@code SERVER_STOPPING}. Lets server-thread hooks (e.g. the team-change
+     * waypoint rebuild in {@code ScoreboardMixin}) reach the player list
+     * without {@code Entity.getServer()} (removed in 26.1+). May be
+     * {@code null} on the client or before the first world load.
+     */
+    private MinecraftServer server;
+
+    /**
      * Monotonically increasing counter bumped on every state change.
      * Used by the mixin to detect when a full resync is needed.
      */
@@ -75,6 +84,7 @@ public class GlowConfigManager {
      * Called when the server starts.
      */
     public void loadFromWorld(MinecraftServer server) {
+        this.server = server;
         Path worldPath = server.getWorldPath(LevelResource.ROOT);
         this.configPath = worldPath.resolve(FILENAME);
         File file = configPath.toFile();
@@ -283,6 +293,19 @@ public class GlowConfigManager {
 
     public boolean isEnabled() {
         return enabled;
+    }
+
+    /**
+     * The running server, or {@code null} on the client / before the first
+     * world load / after {@link #clearServer()}. Server-thread only, like
+     * every other getter.
+     */
+    public MinecraftServer getServer() {
+        return server;
+    }
+
+    public void clearServer() {
+        this.server = null;
     }
 
     /**

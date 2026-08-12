@@ -23,6 +23,14 @@ public class GlowMyTeammates implements ModInitializer {
 			GlowConfigManager.getInstance().loadFromWorld(server);
 		});
 
+		// Drop the server reference and the waypoint dedup map when the
+		// server stops — an integrated server can start again in the same
+		// JVM, and stale ServerLevel keys would otherwise linger.
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+			GlowConfigManager.getInstance().clearServer();
+			WaypointSync.clear();
+		});
+
 		// Register commands
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			GlowCommand.register(dispatcher);

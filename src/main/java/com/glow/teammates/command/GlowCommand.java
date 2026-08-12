@@ -1,6 +1,7 @@
 package com.glow.teammates.command;
 
 import com.glow.teammates.GlowConstants;
+import com.glow.teammates.WaypointSync;
 import com.glow.teammates.config.GlowConfigManager;
 import com.glow.teammates.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
@@ -19,12 +20,10 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
-import net.minecraft.server.waypoints.ServerWaypointManager;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.scores.PlayerTeam;
 
 import java.util.ArrayList;
@@ -371,30 +370,13 @@ public final class GlowCommand {
     /**
      * Rebuild every locator-bar waypoint connection so the
      * {@code locator_bar_teammates_only} filter takes effect
-     * immediately. Mirrors what vanilla {@code ServerScoreboard.updateTeamWaypoints}
-     * does on team membership changes.
-     *
-     * <p>Only player transmitters are rebuilt. Non-player entities do not
-     * transmit waypoints by default ({@code WAYPOINT_TRANSMIT_RANGE} defaults
-     * to 0), so this is sufficient unless a third-party mod raises that
-     * attribute.
-     *
-     * <p>If the locator-bar game rule is off, no receiver can have connections,
-     * so skip the whole rebuild for that dimension.
+     * immediately. Delegates to {@link WaypointSync#rebuildAll} — the same
+     * re-evaluation that {@code ScoreboardMixin} applies to individual
+     * players on team changes, here applied everywhere because the filter
+     * rules themselves changed.
      */
     private static void rebuildWaypointConnections(MinecraftServer server) {
-        for (ServerLevel level : server.getAllLevels()) {
-            // No locator-bar receivers exist when the game rule is off — every
-            // createConnection would bail at isLocatorBarEnabledFor, so skip
-            // the whole rebuild for this dimension.
-            if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
-                continue;
-            }
-            ServerWaypointManager waypointManager = level.getWaypointManager();
-            for (ServerPlayer player : level.players()) {
-                waypointManager.remakeConnections(player);
-            }
-        }
+        WaypointSync.rebuildAll(server);
     }
 
     /**
