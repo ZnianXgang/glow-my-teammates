@@ -85,8 +85,13 @@ public class GlowConfigManager {
      */
     public void loadFromWorld(MinecraftServer server) {
         this.server = server;
+        // LevelResource.ROOT resolves to a "." element (./world/.), so the
+        // bare resolve would log a redundant separator — normalize the
+        // resolved path (./world/./glow-my-teammates.json on Linux,
+        // .\world\.\glow-my-teammates.json on Windows). The normalized path
+        // still targets the same file; only the log text changes.
         Path worldPath = server.getWorldPath(LevelResource.ROOT);
-        this.configPath = worldPath.resolve(FILENAME);
+        this.configPath = worldPath.resolve(FILENAME).normalize();
         File file = configPath.toFile();
 
         if (file.exists()) {
