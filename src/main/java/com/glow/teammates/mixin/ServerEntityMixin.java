@@ -399,10 +399,37 @@ public abstract class ServerEntityMixin {
         Predicate<ServerPlayer> isTeammate =
                 viewer -> entityTeamObj.equals(viewer.getTeam());
 
+        // Viewer-side resync: when the sync epoch or config version moved
+        // since this entity's last sync, viewers that left the glowing team
+        // still carry the mod's 0x40 bit client-side. A continuously-dirty
+        // entity (drowning AIR_SUPPLY, ticksFrozen, a mob farm) never lets
+        // packDirty() return null, so smartForcePacket never forces a flags
+        // packet for it — the no-glow broadcast below must carry the
+        // shared-flags entry itself to clear the stale bit. Each bump then
+        // costs one extra flags item per dirty packet for exactly one resync
+        // round, after which the standing per-packet cost resumes.
+        //
+        // The three caches settle together. The stale counters may stem from
+        // this entity's OWN team change rather than a viewer's — settling
+        // only cachedSyncEpoch/cachedConfigVersion would leave cachedTeamName
+        // stale (e.g. null after a dirty join), and the next quiet tick's
+        // fast bail in smartForcePacket would then trust it. When the entity
+        // later leaves the glowing team, the never-glow bail would see
+        // cachedTeamName == null and skip the forced clear, leaving
+        // ex-teammates with the stale 0x40 bit indefinitely. entityTeamObj
+        // is non-null here, so syncing to it is always safe.
+        boolean viewerSideChanged = cachedSyncEpoch != config.getSyncEpoch()
+                || cachedConfigVersion != config.getVersion();
+
         ClientboundSetEntityDataPacket glowPacket = modifyGlowFlag(
-                dataPacket, true);
+                dataPacket, true, false);
         ClientboundSetEntityDataPacket noGlowPacket = modifyGlowFlag(
-                dataPacket, false);
+                dataPacket, false, viewerSideChanged);
+        if (viewerSideChanged) {
+            cachedTeamName = entityTeamObj.getName();
+            cachedSyncEpoch = config.getSyncEpoch();
+            cachedConfigVersion = config.getVersion();
+        }
 
         // Broadcast the no-glow variant to everyone (tracking + self) first,
         // then overlay the glow variant for teammates only. Netty guarantees
@@ -434,10 +461,18 @@ public abstract class ServerEntityMixin {
      * the entry based on the entity's <em>current</em> flags — a bare
      * {@code 0x40} would replace the whole byte on the client and wipe
      * the other flag bits (FALL_FLYING, SPRINTING, INVISIBLE, ON_FIRE...).
+     * {@code forceIncludeFlags} extends the same treatment to the no-glow
+     * variant: a viewer whose team membership just changed still carries the
+     * stale 0x40 bit client-side, and only a flags entry in the broadcast
+     * can clear it. Unlike the glow overlay, the forced no-glow variant
+     * keeps every dirty entry and APPENDS the flags entry — the no-glow
+     * broadcast is the only delivery of those entries, and replacing the
+     * packet with a flags-only entry would drop them for all viewers.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     private ClientboundSetEntityDataPacket modifyGlowFlag(
-            ClientboundSetEntityDataPacket packet, boolean shouldGlow) {
+            ClientboundSetEntityDataPacket packet, boolean shouldGlow,
+            boolean forceIncludeFlags) {
 
         int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
 
@@ -456,7 +491,7 @@ public abstract class ServerEntityMixin {
         if (foundFlag && flagsMatch) {
             return packet;
         }
-        if (!foundFlag && !shouldGlow) {
+        if (!foundFlag && !shouldGlow && !forceIncludeFlags) {
             return packet; // No flags entry to clear — the original is identical.
         }
 
@@ -479,23 +514,37 @@ public abstract class ServerEntityMixin {
             }
         }
         if (!foundFlag) {
-            // shouldGlow is true here — build the glow-only packet from the
-            // entity's current flags (a bare 0x40 would wipe the other flag
-            // bits). Cache it while the server flags are unchanged: a
-            // continuously-dirty glowing entity would otherwise allocate a new
-            // packet every tick. The other dirty entries were already delivered
-            // by the no-glow broadcast, so a flags-only overlay is sufficient.
+            // No flags entry in the packet — the shared-flags value must be
+            // derived from the entity's current flags (a bare 0x40 would
+            // replace the whole byte on the client and wipe the other flag
+            // bits). The glow variant is cached while the server flags are
+            // unchanged: a continuously-dirty glowing entity would otherwise
+            // allocate a new packet every tick, and the other dirty entries
+            // were already delivered by the no-glow broadcast, so a
+            // flags-only overlay is sufficient.
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
-            if (cachedGlowPacket == null || cachedGlowFlags == null
-                    || cachedGlowFlags.byteValue() != current) {
-                cachedGlowFlags = current;
-                cachedGlowPacket = new ClientboundSetEntityDataPacket(packet.id(),
-                        List.of(new SynchedEntityData.DataValue<>(
-                                sharedFlagsId, EntityDataSerializers.BYTE,
-                                (byte) (current | GlowConstants.FLAG_GLOWING))));
+            if (shouldGlow) {
+                if (cachedGlowPacket == null || cachedGlowFlags == null
+                        || cachedGlowFlags.byteValue() != current) {
+                    cachedGlowFlags = current;
+                    cachedGlowPacket = new ClientboundSetEntityDataPacket(packet.id(),
+                            List.of(new SynchedEntityData.DataValue<>(
+                                    sharedFlagsId, EntityDataSerializers.BYTE,
+                                    (byte) (current | GlowConstants.FLAG_GLOWING))));
+                }
+                return cachedGlowPacket;
             }
-            return cachedGlowPacket;
+            // Forced no-glow variant — only reachable with forceIncludeFlags
+            // (the non-forced case returned the original packet above). Keep
+            // every dirty entry and append the no-glow flags entry: the
+            // no-glow broadcast is the only delivery of the dirty entries
+            // this round, so a flags-only packet would drop them for all
+            // viewers. Built at most once per epoch bump, so it is not
+            // cached.
+            items.add(new SynchedEntityData.DataValue<>(
+                    sharedFlagsId, EntityDataSerializers.BYTE,
+                    (byte) (current & GlowConstants.GLOW_CLEAR_MASK)));
         }
         return new ClientboundSetEntityDataPacket(packet.id(), items);
     }

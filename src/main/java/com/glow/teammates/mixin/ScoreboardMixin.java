@@ -35,10 +35,13 @@ public abstract class ScoreboardMixin {
      * display, so bumping for them would force a full-server resync of
      * every glowing entity for nothing (common with auto-team plugins).
      *
-     * <p>When the locator-bar filter is on, the same change also re-evaluates
-     * the affected players' waypoint connections so the filter applies to
-     * their own locator bar immediately instead of waiting for connections
-     * to turn {@code isBroken()} (which may never happen while AFK).
+     * <p>When the locator-bar filter is on, the same change also marks the
+     * affected players' waypoint connections for a rebuild at the next tick
+     * boundary so the filter applies to their own locator bar without
+     * waiting for connections to turn {@code isBroken()} (which may never
+     * happen while AFK). The rebuild is deferred — see
+     * {@link WaypointSync#rebuildForPlayer} for why an inline rebuild would
+     * evaluate a team switcher mid-transition as teamless.
      */
     @Unique
     private static void onTeamChange(PlayerTeam team, Collection<String> affectedPlayers) {
@@ -80,8 +83,8 @@ public abstract class ScoreboardMixin {
      * fires for real removals. Hooked unconditionally because real removals
      * always need the bump; a burst of removals inside one tick still collapses
      * into a single resync round since {@code ServerEntityMixin#smartForcePacket}
-     * compares counters with {@code !=} (and the waypoint rebuild is
-     * deduplicated per dimension per tick).
+     * compares counters with {@code !=} (and the deferred waypoint rebuild
+     * drains once per tick at the boundary).
      */
     @Inject(method = "removePlayerFromTeam(Ljava/lang/String;"
             + "Lnet/minecraft/world/scores/PlayerTeam;)V",

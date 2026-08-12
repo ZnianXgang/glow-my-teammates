@@ -5,6 +5,7 @@ import com.glow.teammates.config.GlowConfigManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,12 @@ public class GlowMyTeammates implements ModInitializer {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			GlowConfigManager.getInstance().clearServer();
 			WaypointSync.clear();
+		});
+
+		// Drain deferred locator-bar rebuilds at the tick boundary — see
+		// WaypointSync for why the rebuild must see the final team state.
+		ServerTickEvents.END_SERVER_TICK.register(server -> {
+			WaypointSync.flushPendingRebuilds();
 		});
 
 		// Register commands

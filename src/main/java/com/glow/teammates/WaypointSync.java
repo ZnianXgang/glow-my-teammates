@@ -5,8 +5,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.gamerules.GameRules;
 
+import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * Rebuilds locator-bar waypoint connections so the
@@ -32,14 +33,19 @@ public final class WaypointSync {
     private WaypointSync() {}
 
     /**
-     * Per-dimension dedup: the tick each dimension's connections were last
-     * rebuilt for a team change. A burst of membership changes inside one
-     * tick collapses into a single rebuild — the first rebuild already
-     * re-evaluates every connection in the dimension, so later affected
-     * players in the same tick are covered by it.
+     * Dimensions whose connections need a rebuild for a team change, drained
+     * once at the next tick boundary (see {@link #flushPendingRebuilds}).
+     *
+     * <p>Deferring (instead of rebuilding inline) both collapses a burst of
+     * membership changes inside one tick into a single pass and guarantees
+     * the pass sees the <em>final</em> team state:
+     * {@code Scoreboard.addPlayerToTeam} removes-then-adds inside one tick,
+     * so an inline rebuild on the remove hook would evaluate the switcher
+     * mid-transition as teamless and leave their own locator bar showing
+     * everyone until the next rebuild trigger.
      */
-    private static final Map<ServerLevel, Long> lastTeamChangeRebuild =
-            new IdentityHashMap<>();
+    private static final Set<ServerLevel> pendingRebuilds =
+            Collections.newSetFromMap(new IdentityHashMap<>());
 
     /**
      * Rebuild every player-transmitted connection in every dimension.
@@ -66,10 +72,11 @@ public final class WaypointSync {
     }
 
     /**
-     * Rebuild the receiver-side connections of one affected player: every
-     * player-sent connection in that player's dimension, which re-evaluates
-     * what shows up on their locator bar (and, redundantly with vanilla's
-     * sender-side rebuild, what other players see of them).
+     * Mark the affected player's dimension for a receiver-side rebuild at
+     * the next tick boundary: every player-sent connection in that player's
+     * dimension, which re-evaluates what shows up on their locator bar (and,
+     * redundantly with vanilla's sender-side rebuild, what other players see
+     * of them).
      *
      * <p>Called from {@code ScoreboardMixin} when a player joins or leaves a
      * glow-enabled team while {@code locator_bar_teammates_only} is on.
@@ -85,23 +92,39 @@ public final class WaypointSync {
         if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
             return;
         }
-        Long lastTick = lastTeamChangeRebuild.get(level);
-        long tick = level.getGameTime();
-        if (lastTick != null && lastTick == tick) {
-            return; // Already rebuilt this dimension this tick.
-        }
-        lastTeamChangeRebuild.put(level, tick);
-        for (ServerPlayer other : level.players()) {
-            level.getWaypointManager().remakeConnections(other);
+        pendingRebuilds.add(level);
+    }
+
+    /**
+     * Drain the pending rebuilds. Called on
+     * {@code ServerTickEvents.END_SERVER_TICK}: by then the whole tick's
+     * membership changes are final, so one pass per dimension re-evaluates
+     * every connection against the settled team state.
+     *
+     * <p>Drains one level at a time instead of iterating-then-clearing: a
+     * reentrant team change during the rebuild re-adds the level, and the
+     * drain loop keeps it pending (a live for-each plus a trailing
+     * {@code clear()} would either drop the re-added mark or throw).
+     */
+    public static void flushPendingRebuilds() {
+        while (!pendingRebuilds.isEmpty()) {
+            ServerLevel level = pendingRebuilds.iterator().next();
+            pendingRebuilds.remove(level);
+            if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
+                continue; // The rule was turned off after the mark — nothing to rebuild.
+            }
+            for (ServerPlayer other : level.players()) {
+                level.getWaypointManager().remakeConnections(other);
+            }
         }
     }
 
     /**
-     * Drop the dedup map. Called on {@code SERVER_STOPPING} so unloaded
-     * dimension instances don't linger (an integrated server can start and
-     * stop several times in one JVM).
+     * Drop the pending-rebuild set. Called on {@code SERVER_STOPPING} so
+     * unloaded dimension instances don't linger (an integrated server can
+     * start and stop several times in one JVM).
      */
     public static void clear() {
-        lastTeamChangeRebuild.clear();
+        pendingRebuilds.clear();
     }
 }
