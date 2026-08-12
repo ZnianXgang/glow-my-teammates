@@ -15,7 +15,7 @@ Three ideas hold the whole design together:
 ```
 settings.gradle                     Stonecutter: versions '26.1', '26.2', vcsVersion = 26.2
 build.gradle                        Shared script; per-version deps via ${property(...)}
-gradle.properties                   mod_version (1.1.1), maven_group, loom_version
+gradle.properties                   mod_version (1.1.2), maven_group, loom_version
 versions/<mc>/gradle.properties     Per-version: minecraft/loader/fabric-api/server-translations versions
 src/main/resources/
   fabric.mod.json                   environment: "*" (loads in singleplayer/LAN too)

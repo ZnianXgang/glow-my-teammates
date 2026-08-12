@@ -66,7 +66,7 @@ Every command is gated by a permission node under `glow-my-teammates.command.*`,
 
 ## Config file
 
-Stored per world at `<world>/glow-my-teammates.json`. Example for mod version **1.1.1** (config schema `[1, 1]`):
+Stored per world at `<world>/glow-my-teammates.json`. Example for mod version **1.1.2** (config schema `[1, 1]`):
 
 ```json
 {
@@ -103,8 +103,8 @@ This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both 
 ```
 
 Output:
-- `versions/26.1/build/libs/glow-my-teammates-1.1.1+26.1.jar`
-- `versions/26.2/build/libs/glow-my-teammates-1.1.1+26.2.jar`
+- `versions/26.1/build/libs/glow-my-teammates-1.1.2+26.1.jar`
+- `versions/26.2/build/libs/glow-my-teammates-1.1.2+26.2.jar`
 
 The Server-Translations API dependency is bundled into the jar — a single jar is all you need to install.
 
