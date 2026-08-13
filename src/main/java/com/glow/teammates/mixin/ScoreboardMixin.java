@@ -42,20 +42,36 @@ public abstract class ScoreboardMixin {
      * happen while AFK). The rebuild is deferred — see
      * {@link WaypointSync#rebuildForPlayer} for why an inline rebuild would
      * evaluate a team switcher mid-transition as teamless.
+     *
+     * <p><strong>Client-scoreboard guard:</strong> the mixin also applies to
+     * the <em>client</em> scoreboard — in singleplayer/LAN the integrated
+     * server shares this JVM and this config singleton, and
+     * {@code ClientPacketListener} mutates the client scoreboard from the
+     * client thread while processing team packets. Acting on those calls
+     * would bump {@code syncEpoch} off the server thread and write to
+     * {@code WaypointSync}'s pending-rebuild set while the server thread
+     * drains it — a data race that can corrupt the set and crash or hang the
+     * tick loop. The server broadcasts team packets only <em>after</em>
+     * mutating its own {@code ServerScoreboard} (which fires this hook on
+     * the server thread first), so ignoring every scoreboard that is not the
+     * server's own on the server thread loses nothing.
      */
     @Unique
-    private static void onTeamChange(PlayerTeam team, Collection<String> affectedPlayers) {
+    private static void onTeamChange(Scoreboard scoreboard, PlayerTeam team,
+                                     Collection<String> affectedPlayers) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         if (!config.isEnabled() || !config.isTeamEnabled(team.getName())) {
             return;
         }
+        MinecraftServer server = config.getServer();
+        if (server == null || !server.isSameThread()
+                || scoreboard != server.getScoreboard()) {
+            return;
+        }
         config.bumpSyncEpoch();
         if (config.isLocatorBarTeammatesOnly()) {
-            MinecraftServer server = config.getServer();
-            if (server != null) {
-                for (String player : affectedPlayers) {
-                    WaypointSync.rebuildForPlayer(server, player);
-                }
+            for (String player : affectedPlayers) {
+                WaypointSync.rebuildForPlayer(server, player);
             }
         }
     }
@@ -66,7 +82,8 @@ public abstract class ScoreboardMixin {
     private void onAddPlayerToTeam(String playerName, PlayerTeam team,
                                    CallbackInfoReturnable<Boolean> cir) {
         if (cir.getReturnValue()) {
-            onTeamChange(team, Collections.singletonList(playerName));
+            onTeamChange((Scoreboard) (Object) this, team,
+                    Collections.singletonList(playerName));
         }
     }
 
@@ -91,7 +108,8 @@ public abstract class ScoreboardMixin {
             at = @At("RETURN"))
     private void onRemovePlayerFromTeam(String playerName, PlayerTeam team,
                                         CallbackInfo ci) {
-        onTeamChange(team, Collections.singletonList(playerName));
+        onTeamChange((Scoreboard) (Object) this, team,
+                Collections.singletonList(playerName));
     }
 
     /**
@@ -110,6 +128,6 @@ public abstract class ScoreboardMixin {
     @Inject(method = "removePlayerTeam(Lnet/minecraft/world/scores/PlayerTeam;)V",
             at = @At("RETURN"))
     private void onRemovePlayerTeam(PlayerTeam team, CallbackInfo ci) {
-        onTeamChange(team, team.getPlayers());
+        onTeamChange((Scoreboard) (Object) this, team, team.getPlayers());
     }
 }

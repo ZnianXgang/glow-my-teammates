@@ -73,7 +73,7 @@ The old explicit self-send was deleted: `ChunkMap.TrackedEntity.updatePlayer` ex
 
 ### 3.3 Viewer-side team changes (`ScoreboardMixin`)
 
-Three `@Inject`s funnel into one `onTeamChange(PlayerTeam, Collection<String>)` which bumps `syncEpoch` **only for glow-enabled teams** (and only while the mod is enabled), and additionally rebuilds the affected players' locator-bar connections when `locator_bar_teammates_only` is on (see §5):
+Three `@Inject`s funnel into one `onTeamChange(Scoreboard, PlayerTeam, Collection<String>)` which bumps `syncEpoch` **only for glow-enabled teams** (and only while the mod is enabled), and additionally rebuilds the affected players' locator-bar connections when `locator_bar_teammates_only` is on (see §5). The hooks also fire on the *client* scoreboard in singleplayer/LAN (the client thread mutates it while processing team packets), so the helper ignores every scoreboard that is not the server's own on the server thread — see rule §8.7:
 - `Scoreboard.addPlayerToTeam(String, PlayerTeam)` (RETURN, checks the return value)
 - `Scoreboard.removePlayerFromTeam(String, PlayerTeam)` (two-arg, RETURN) — the single-arg overload is deliberately NOT hooked: on success it internally calls the two-arg version, so hooking both would double-bump
 - `Scoreboard.removePlayerTeam(PlayerTeam)` — required: `/team remove` clears `teamsByPlayer` directly, bypassing both hooks above. Without it, glow would linger forever on viewers. This one passes the whole `team.getPlayers()` list — `removePlayerTeam` never empties the team's own player set (vanilla's own `ServerScoreboard.onTeamRemoved` relies on the same fact), so every member gets their waypoint connections rebuilt.
@@ -179,7 +179,7 @@ No Stonecutter version gates needed: the interface signature is identical in 26.
 4. **Non-glow team changes must not bump `syncEpoch`** — auto-team plugins cause constant membership churn; bumping for non-glow teams would resync the whole server for nothing.
 5. **Idempotent setters or pay the resync cost** (§4.2 — and keep the command-side guard on `addTeam`).
 6. **`configVersion` migration must precede `version++`** (§4.3).
-7. **Mixin target classes load on the client too** (`environment: "*"`). Keep this safe: client-side *application* is harmless because the hooked server methods never run there — but never put client-only code in a shared mixin.
+7. **Mixin target classes load on the client too** (`environment: "*"`). Keep this safe: the `ServerEntity`/`LivingEntity` hooks are harmless on the client because those methods never run there, but `ScoreboardMixin` is the exception — `ClientPacketListener` mutates the *client* scoreboard from the client thread in singleplayer/LAN, so its hooks **do** fire off the server thread. `onTeamChange` must ignore anything that is not the server's own scoreboard on the server thread (`server.getScoreboard() == this && server.isSameThread()`, with `server` null before `SERVER_STARTED`) before touching the shared counters or `WaypointSync` — the server fires the same hook on the server thread before broadcasting the team packet, so nothing is lost. Never put client-only code in a shared mixin.
 8. **Server-Translations keys live in `data/<modid>/lang/`, not `assets/`** — the server reads the former.
 9. **Never define fields in `@Mixin` interfaces** — even `static final` constants are injected into the target class and fail validation unless `@Shadow` (`InvalidInterfaceMixinException`, crashes at startup, compiles fine). Shared constants live in `GlowConstants` (a plain class).
 
