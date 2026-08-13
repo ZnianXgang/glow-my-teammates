@@ -55,7 +55,7 @@ ServerEntity.sendDirtyEntityData()
 | Hook | Fires when | Job |
 |---|---|---|
 | `smartForcePacket` (`@ModifyVariable` on the `packDirty()` result) | `packDirty()` returned `null` | Force a packet **only** if `cachedTeamName`/`cachedConfigVersion`/`cachedSyncEpoch` are stale; otherwise return `null` so vanilla skips the packet entirely |
-| `onAddPairing` (`@Inject` TAIL on `addPairing`) | A new viewer starts tracking the entity | Send the correct glow state immediately, and seed the caches so `smartForcePacket` won't redundantly force later |
+| `onAddPairing` (`@Inject` TAIL on `addPairing`) | A new viewer starts tracking the entity | Send the correct glow state immediately; seed only `cachedTeamName` — the epoch/config counters are left unsettled so a pending cleanup broadcast for existing viewers is not skipped (the next quiet tick delivers it, one round at most) |
 | `redirectSendData` (`@Redirect` on `sendToTrackingPlayersAndSelf`, ordinal 0) | Every dirty-data broadcast | Build no-glow + glow copies, broadcast then overlay (see §3.1) |
 
 `smartForcePacket` has three optimizations worth not breaking:

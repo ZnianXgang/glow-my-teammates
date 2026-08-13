@@ -223,10 +223,16 @@ public abstract class ServerEntityMixin {
         boolean isTeammate = glowingTeam.equals(viewer.getTeam());
 
         if (!isTeammate) {
-            // Prevent smartForcePacket from redundantly forcing later.
+            // Remember the entity's glow team so smartForcePacket's team-change
+            // detection stays accurate — but do NOT settle cachedSyncEpoch /
+            // cachedConfigVersion. Those counters are the "all viewers are
+            // synced" marker, and this pairing only customized the NEW viewer:
+            // settling them here would suppress the pending forced broadcast
+            // that clears a stale glow bit from viewers whose team changed
+            // before this pairing, leaving that bit stuck until the next bump.
+            // The counters settle on the next smartForcePacket round instead —
+            // one forced broadcast at most.
             cachedTeamName = glowingTeam.getName();
-            cachedConfigVersion = GlowConfigManager.getInstance().getVersion();
-            cachedSyncEpoch = GlowConfigManager.getInstance().getSyncEpoch();
             return;
         }
 
@@ -242,9 +248,10 @@ public abstract class ServerEntityMixin {
                     new ClientboundSetEntityDataPacket(entity.getId(), items));
         }
 
+        // Same reasoning as the non-teammate branch above: only cachedTeamName
+        // is settled, so a pending cleanup broadcast for existing viewers is
+        // delivered by the next quiet tick instead of being skipped.
         cachedTeamName = glowingTeam.getName();
-        cachedConfigVersion = GlowConfigManager.getInstance().getVersion();
-        cachedSyncEpoch = GlowConfigManager.getInstance().getSyncEpoch();
     }
 
     // ========== Helpers ==========
