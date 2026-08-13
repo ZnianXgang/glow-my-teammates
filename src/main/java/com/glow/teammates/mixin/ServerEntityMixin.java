@@ -380,6 +380,23 @@ public abstract class ServerEntityMixin {
                 : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
                         & GlowConstants.FLAG_GLOWING) != 0;
         if (vanillaGlow) {
+            // Settle the counters when stale. Without this, a vanilla-glowing
+            // entity in a glow-enabled team keeps tripping smartForcePacket's
+            // mismatch check on every quiet tick (the forwarded packet never
+            // settles the counters), forcing one redundant broadcast per tick
+            // forever — the one-shot-per-bump budget in AGENTS.md §10.1
+            // silently becomes unbounded. Safe to settle: while vanilla glow
+            // is active the mod's bit is invisible to every viewer, and the
+            // next flags change flows through the split path below, which
+            // clears any stale bit. The scoreboard lookup is skipped entirely
+            // when nothing is stale.
+            if (cachedSyncEpoch != config.getSyncEpoch()
+                    || cachedConfigVersion != config.getVersion()) {
+                PlayerTeam team = getGlowingTeam(entity);
+                cachedTeamName = team != null ? team.getName() : null;
+                cachedSyncEpoch = config.getSyncEpoch();
+                cachedConfigVersion = config.getVersion();
+            }
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
