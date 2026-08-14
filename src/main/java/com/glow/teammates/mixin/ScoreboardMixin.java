@@ -60,12 +60,12 @@ public abstract class ScoreboardMixin {
     private static void onTeamChange(Scoreboard scoreboard, PlayerTeam team,
                                      Collection<String> affectedPlayers) {
         GlowConfigManager config = GlowConfigManager.getInstance();
-        if (!config.isEnabled() || !config.isTeamEnabled(team.getName())) {
-            return;
-        }
         MinecraftServer server = config.getServer();
         if (server == null || !server.isSameThread()
                 || scoreboard != server.getScoreboard()) {
+            return;
+        }
+        if (!config.isEnabled() || !config.isTeamEnabled(team.getName())) {
             return;
         }
         config.bumpSyncEpoch();
