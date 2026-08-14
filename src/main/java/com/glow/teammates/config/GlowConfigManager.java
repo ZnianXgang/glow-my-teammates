@@ -2,6 +2,7 @@ package com.glow.teammates.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.glow.teammates.GlowMyTeammates;
@@ -128,12 +129,15 @@ public class GlowConfigManager {
                     // (major 0) and rewrite with the current schema. The 1.1.1
                     // rename (locatorBarHideOtherGlowingTeams →
                     // locatorBarTeammatesOnly) also rewrites the file so the
-                    // old key is dropped. Runs before version++ so the
-                    // migration write keeps the cache-invalidation semantics
-                    // intact (the config did change).
+                    // old key is dropped. A schema-1 file with a literal-null
+                    // `config` sub-object is reset to defaults above and must
+                    // be rewritten too, so it stops reloading as broken. Runs
+                    // before version++ so the migration write keeps the
+                    // cache-invalidation semantics intact (the config did change).
                     int major = (data.configVersion == null || data.configVersion.length == 0)
                             ? 0 : data.configVersion[0];
-                    if (major < 1 || migrateLocatorBarSwitchName(rawJson)) {
+                    boolean migratedSwitchName = migrateLocatorBarSwitchName(rawJson);
+                    if (major < 1 || migratedSwitchName || data.config == null) {
                         save();
                     }
                     this.version++;
@@ -178,8 +182,11 @@ public class GlowConfigManager {
     private boolean migrateLocatorBarSwitchName(String rawJson) {
         try {
             JsonObject root = JsonParser.parseString(rawJson).getAsJsonObject();
-            JsonObject configObj = root.getAsJsonObject("config");
-            if (configObj == null || !configObj.has("locatorBarHideOtherGlowingTeams")
+            JsonElement configElement = root.get("config");
+            if (!(configElement instanceof JsonObject configObj)) {
+                return false;
+            }
+            if (!configObj.has("locatorBarHideOtherGlowingTeams")
                     || configObj.has("locatorBarTeammatesOnly")) {
                 return false;
             }
