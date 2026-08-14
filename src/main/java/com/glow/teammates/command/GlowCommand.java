@@ -444,7 +444,9 @@ public final class GlowCommand {
                 ClientboundSetEntityDataPacket packet =
                         new ClientboundSetEntityDataPacket(entity.getId(), items);
                 for (ServerPlayer player : tracking) {
-                    player.connection.send(packet);
+                    if (player.connection != null) {
+                        player.connection.send(packet);
+                    }
                 }
             }
         }
