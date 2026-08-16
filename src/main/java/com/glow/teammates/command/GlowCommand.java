@@ -387,12 +387,11 @@ public final class GlowCommand {
     }
 
     /**
-     * Rebuild every locator-bar waypoint connection so the
-     * {@code locator_bar_teammates_only} filter takes effect
-     * immediately. Delegates to {@link WaypointSync#rebuildAll} — the same
-     * re-evaluation that {@code ScoreboardMixin} applies to individual
-     * players on team changes, here applied everywhere because the filter
-     * rules themselves changed.
+     * Rebuild every locator-bar connection so the
+     * {@code locator_bar_teammates_only} filter takes effect immediately —
+     * the same re-evaluation {@code ScoreboardMixin} applies to individual
+     * players on team changes, here applied everywhere because the rules
+     * themselves changed.
      */
     private static void rebuildWaypointConnections(MinecraftServer server) {
         WaypointSync.rebuildAll(server);
@@ -400,26 +399,18 @@ public final class GlowCommand {
 
     /**
      * Clear the mod-overlaid glow on every non-player entity by broadcasting
-     * a no-glow entity-data packet. Turning the {@code non_player_glow} switch
-     * off must also stop already-glowing mobs: a stationary mob never produces
-     * dirty entity data, so without this it would keep the stale 0x40 bit on
-     * clients forever.
-     *
-     * <p>Entities that glow for vanilla reasons are skipped — the mod never
-     * touched those: {@code isCurrentlyGlowing()} for living entities (effect
-     * or glow tag), and the same shared-flags bit checked directly for
-     * non-living entities (which have no effect, only the tag). Packets go
-     * only to players whose chunk-tracking view covers the entity's chunk.
-     *
-     * <p>One-shot at command frequency; the chunk → tracking-players map keeps
-     * the per-entity work at a single hash lookup. See AGENTS.md §10.3.
+     * a no-glow entity-data packet. Required because a stationary mob never
+     * produces dirty entity data, so the stale 0x40 bit would otherwise stay
+     * on clients forever. Vanilla-glowing entities are skipped (the mod never
+     * touched those); packets go only to players whose chunk-tracking view
+     * covers the entity's chunk. One-shot at command frequency — the chunk →
+     * tracking-players map keeps per-entity work at a single hash lookup
+     * (AGENTS.md §10.3).
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
             // Build a chunk → tracking-players map once instead of calling
-            // ChunkMap.getPlayers (O(online players) per call) for every
-            // entity — this is one O(players × tracked chunks) pass plus
-            // O(entities) hash lookups.
+            // ChunkMap.getPlayers (O(online players) per call) for every entity.
             Map<ChunkPos, List<ServerPlayer>> chunkViewers = new HashMap<>();
             for (ServerPlayer player : level.players()) {
                 player.getChunkTrackingView().forEach(chunk -> {
@@ -432,10 +423,9 @@ public final class GlowCommand {
                 if (entity instanceof Player) {
                     continue;
                 }
-                // Vanilla glow must be left alone: LivingEntity.isCurrentlyGlowing()
-                // covers effect + glow tag; non-living entities can only carry the
-                // glow tag (same shared-flags bit), so check it directly —
-                // otherwise the clear packet would wrongly extinguish it.
+                // Vanilla glow (effect for living, glow-tag bit for the rest)
+                // must be left alone — otherwise the clear packet would
+                // wrongly extinguish it.
                 boolean vanillaGlow = entity instanceof LivingEntity living
                         ? living.isCurrentlyGlowing()
                         : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
@@ -457,8 +447,8 @@ public final class GlowCommand {
                         new SynchedEntityData.DataValue<>(
                                 EntityAccessor.getSharedFlagsId().id(),
                                 EntityDataSerializers.BYTE,
-                                // GlowConstants.GLOW_CLEAR_MASK clears the glow
-                                // bit, keeping every other shared flag intact.
+                                // GLOW_CLEAR_MASK clears the glow bit, keeping
+                                // every other shared flag intact.
                                 (byte) (flags & GlowConstants.GLOW_CLEAR_MASK)));
                 ClientboundSetEntityDataPacket packet =
                         new ClientboundSetEntityDataPacket(entity.getId(), items);

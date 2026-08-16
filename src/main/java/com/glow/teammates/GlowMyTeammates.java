@@ -24,18 +24,16 @@ public class GlowMyTeammates implements ModInitializer {
 			GlowConfigManager.getInstance().loadFromWorld(server);
 		});
 
-		// Drop the server reference and the waypoint dedup map when the
-		// server stops — an integrated server can start again in the same
-		// JVM, and stale ServerLevel keys would otherwise linger.
+		// Drop the server reference and the waypoint pending set when the
+		// server stops — an integrated server can restart in the same JVM.
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			GlowConfigManager.getInstance().clearServer();
 			WaypointSync.clear();
 		});
 
-		// Drain deferred locator-bar rebuilds at the tick boundary — see
-		// WaypointSync for why the rebuild must see the final team state.
-		// The server reference lets the drain skip dimensions left behind by
-		// a crashed previous server (see WaypointSync.flushPendingRebuilds).
+		// Drain deferred locator-bar rebuilds at the tick boundary — the
+		// rebuild must see the final team state, and the server reference lets
+		// the drain skip dimensions left by a crashed previous server.
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			WaypointSync.flushPendingRebuilds(server);
 		});

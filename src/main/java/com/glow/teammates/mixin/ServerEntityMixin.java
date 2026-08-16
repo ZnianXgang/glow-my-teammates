@@ -37,60 +37,38 @@ public abstract class ServerEntityMixin {
     private Entity entity;
 
     /**
-     * Cached team name at last glow sync — used to detect team membership changes
-     * without polling the scoreboard every tick. {@code null} means not yet synced
-     * (forces a packet on first encounter).
+     * Cached state at last glow sync — stale counters trigger a forced resync.
+     * {@code null} team name means not yet synced (forces a packet on first
+     * encounter). Counters: config version (config changes, e.g. team add/remove)
+     * and sync epoch (viewer-side team changes — a player joining or leaving a
+     * team forces a resync of every glowing entity so affected viewers see the
+     * correct state immediately).
      */
     @Unique
     private String cachedTeamName;
-
-    /**
-     * Cached {@link GlowConfigManager#getVersion()} at last glow sync.
-     * Detects config changes (e.g. {@code /teamglow team add/remove}).
-     */
     @Unique
     private long cachedConfigVersion;
-
-    /**
-     * Cached {@link GlowConfigManager#getSyncEpoch()} at last glow sync.
-     * Detects viewer-side team membership changes — when a player joins
-     * or leaves a scoreboard team, all glowing entities force a resync
-     * so that affected viewers see the correct glow state immediately.
-     */
     @Unique
     private long cachedSyncEpoch;
 
     /**
-     * Cached glow-only packet and the server flags value it was built from.
-     * Continuously-dirty glowing entities (frozen, drowning, mob farms with
-     * {@code non_player_glow} on) would otherwise allocate a new packet every
-     * tick; the cache is rebuilt whenever the server flags change. The cached
-     * packet is immutable (encode is read-only), so reusing it for every
-     * teammate viewer is safe.
+     * Glow-only overlay packet cached per server-flags value: continuously-dirty
+     * glowing entities (frozen, drowning, mob farms) would otherwise allocate a
+     * new packet every tick. Immutable (encode is read-only), so reusing it for
+     * every teammate viewer is safe.
      */
     @Unique
     private Byte cachedGlowFlags;
     @Unique
     private ClientboundSetEntityDataPacket cachedGlowPacket;
 
-    /**
-     * Bit in the entity shared flags ({@code Entity.DATA_SHARED_FLAGS_ID})
-     * that controls glowing — see {@link EntityAccessor#FLAG_GLOWING}.
-     */
-
     // ========== Smart force: only when team membership or config changes ==========
 
     /**
-     * {@link SynchedEntityData#packDirty()} returns {@code null} when no entity
-     * data has changed. Instead of <em>always</em> forcing a packet for tracked
-     * entities (which floods the network every tick), this method only forces a
-     * packet when the entity's glowing-team membership or the config version has
-     * changed since the last sync.
-     *
-     * <p>Initial tracking (first sighting) is handled by {@link #onAddPairing},
-     * which fires exactly once when a viewer starts tracking this entity.
-     * This method only catches mid-session state changes: team join/leave,
-     * {@code /teamglow team add/remove}, or glow toggling on/off.
+     * When {@code packDirty()} returned {@code null}, force a packet only if the
+     * glowing-team membership, config version, or sync epoch changed since the
+     * last sync — never flood the network on every quiet tick. First sighting is
+     * handled by {@link #onAddPairing}; this catches mid-session changes only.
      */
     @ModifyVariable(
             method = "sendDirtyEntityData",
@@ -109,14 +87,11 @@ public abstract class ServerEntityMixin {
         }
         GlowConfigManager config = GlowConfigManager.getInstance();
         if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
-            // Non-player glow is off and this is not a player — this entity can
-            // never be customized by the mod. Sync the caches anyway: a mob
-            // that glowed before the switch was turned off (cachedTeamName
-            // set) and never produces dirty data again would otherwise keep
-            // stale cached state forever. If it was previously customized, force
-            // one packet so stale client-side glow is cleared even when the
-            // command-path clearNonPlayerGlow wasn't run (e.g. another mod called
-            // setNonPlayerGlow(false) directly).
+            // Non-player, glow off — never customizable. Sync the caches and,
+            // if this entity glowed before the switch was turned off
+            // (cachedTeamName set), force one no-glow packet so stale client
+            // glow is cleared even when clearNonPlayerGlow wasn't run (e.g.
+            // another mod disabled the switch directly).
             boolean hadCachedTeam = cachedTeamName != null;
             cachedTeamName = null;
             cachedConfigVersion = config.getVersion();
@@ -139,25 +114,18 @@ public abstract class ServerEntityMixin {
         String currentTeamName = glowingTeam != null
                 ? glowingTeam.getName() : null;
 
-        // Optimization: entity was never in a glowing team (neither now nor
-        // at last sync) — no viewer-side team change or config change can
-        // make it glow, so the whole broadcast is skippable. If it later
-        // joins a glowing team, addPlayerToTeam bumps the syncEpoch and the
-        // normal path below re-engages, so nothing is missed.
+        // Never-glow bail: no glowing team now or at last sync — no state
+        // change can make it glow, so the whole broadcast is skippable. Sync
+        // the caches too, so later bumps don't re-run the lookups forever.
         if (currentTeamName == null && cachedTeamName == null) {
-            // Catch the caches up too — otherwise cachedConfigVersion /
-            // cachedSyncEpoch stay forever behind and every later epoch or
-            // config bump would re-run the scoreboard lookups above every
-            // tick, permanently.
             cachedTeamName = null;
             cachedConfigVersion = currentConfigVersion;
             cachedSyncEpoch = currentSyncEpoch;
             return null;
         }
 
-        // Detect transitions in BOTH directions:
-        // null → "red" = player joined a glowing team (force glow packet)
-        // "red" → null = player left or mod disabled (force cleanup packet)
+        // Detect transitions in both directions: joined a glowing team (force
+        // glow packet) or left / mod disabled (force cleanup packet).
         boolean teamChanged = (currentTeamName == null)
                 ? (cachedTeamName != null)
                 : !currentTeamName.equals(cachedTeamName);
@@ -185,13 +153,9 @@ public abstract class ServerEntityMixin {
     // ========== Initial sync: first sighting by a new tracker ==========
 
     /**
-     * When a player enters this entity's tracking range for the first time
-     * (or after reconnecting / dimension change), immediately send the
-     * correct glow state — glow for teammates, no glow for others.
-     *
-     * <p>This fires exactly once per viewer, right after the vanilla spawn
-     * packet. For teammates: sends 1 extra {@link ClientboundSetEntityDataPacket}
-     * with bit {@code 0x40} set. For non-teammates: no action needed.
+     * First sighting by a new viewer (or after reconnect / dimension change):
+     * send the correct glow state exactly once, right after the vanilla spawn
+     * packet — glow bit for teammates, nothing for non-teammates.
      */
     @Inject(method = "addPairing", at = @At("TAIL"))
     private void onAddPairing(ServerPlayer viewer, CallbackInfo ci) {
@@ -206,11 +170,8 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        // Vanilla glow (spectral arrows, potions, setGlowingTag) already covers
-        // the viewer — same rule as redirectSendData, so both paths judge
-        // uniformly and the OR-ing here stays a no-op. Non-living entities
-        // (item frames, boats...) have no effect — only the glow tag can be
-        // set, so check the same shared-flags bit directly.
+        // Same vanilla-glow rule as redirectSendData: the viewer is already
+        // covered (GLOWING effect for living entities, glow-tag bit for the rest).
         boolean vanillaGlow = entity instanceof LivingEntity living
                 ? living.isCurrentlyGlowing()
                 : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
@@ -227,15 +188,12 @@ public abstract class ServerEntityMixin {
         boolean isTeammate = glowingTeam.equals(viewer.getTeam());
 
         if (!isTeammate) {
-            // Remember the entity's glow team so smartForcePacket's team-change
-            // detection stays accurate — but do NOT settle cachedSyncEpoch /
-            // cachedConfigVersion. Those counters are the "all viewers are
-            // synced" marker, and this pairing only customized the NEW viewer:
-            // settling them here would suppress the pending forced broadcast
-            // that clears a stale glow bit from viewers whose team changed
-            // before this pairing, leaving that bit stuck until the next bump.
-            // The counters settle on the next smartForcePacket round instead —
-            // one forced broadcast at most.
+            // Remember the glow team for smartForcePacket's detection, but do
+            // NOT settle the epoch/config counters: they mark "all viewers
+            // synced", and this pairing only customized the NEW viewer —
+            // settling would suppress the pending cleanup broadcast for
+            // viewers whose team changed before this pairing. The counters
+            // settle on the next smartForcePacket round instead.
             cachedTeamName = glowingTeam.getName();
             return;
         }
@@ -252,8 +210,8 @@ public abstract class ServerEntityMixin {
                     new ClientboundSetEntityDataPacket(entity.getId(), items));
         }
 
-        // Same reasoning as the non-teammate branch above: only cachedTeamName
-        // is settled, so a pending cleanup broadcast for existing viewers is
+        // Only cachedTeamName is settled — same reasoning as the non-teammate
+        // branch above, so a pending cleanup broadcast for existing viewers is
         // delivered by the next quiet tick instead of being skipped.
         cachedTeamName = glowingTeam.getName();
     }
@@ -261,17 +219,11 @@ public abstract class ServerEntityMixin {
     // ========== Helpers ==========
 
     /**
-     * Returns the {@link PlayerTeam} the given entity belongs to, if that team
-     * has glow enabled. Returns {@code null} otherwise. Non-player entities
-     * are looked up by their scoreboard name ({@link Entity#getScoreboardName()},
-     * which is the UUID string for non-players).
-     *
-     * <p>Runs once per dirty packet, plus once per viewer inside the
-     * {@code isTeammate} predicate in {@link #redirectSendData}. The O(1) hash
-     * probes are accepted as-is — caching the team on the {@code ServerEntity}
-     * would need precise invalidation that the global {@code syncEpoch} cannot
-     * distinguish (entity switched teams vs viewer switched teams). See
-     * AGENTS.md §10.2.
+     * The entity's team if it has glow enabled, else {@code null}. Non-players
+     * are looked up by scoreboard name (their UUID string). Runs once per dirty
+     * packet plus once per viewer; the O(1) probes are accepted as-is — caching
+     * the team would need invalidation the global {@code syncEpoch} cannot
+     * distinguish (AGENTS.md §10.2).
      */
     @Unique
     private static PlayerTeam getGlowingTeam(Entity entity) {
@@ -288,15 +240,12 @@ public abstract class ServerEntityMixin {
     }
 
     /**
-     * If this entity was previously customized by the mod but should no
-     * longer glow, drop the stale 0x40 bit and settle the caches. When the
-     * current packet already carries the shared-flags entry, the broadcast
-     * that follows applies the no-glow flags anyway — sending a second
-     * flags-only packet here would be redundant. A continuously-dirty entity
-     * (a drowning player's AIR_SUPPLY, a frozen entity's ticksFrozen) never
-     * lets {@code packDirty()} return null, so {@code smartForcePacket} never
-     * fires and the stale glow bit would otherwise linger on clients until
-     * the data stops changing.
+     * Drop a stale mod-glow bit when the entity no longer should glow, and
+     * settle the caches. Skips the extra packet when the current broadcast
+     * already carries the shared-flags entry (the no-glow value applies on
+     * its own). Needed because a continuously-dirty entity never takes
+     * {@code smartForcePacket}, so the stale bit would otherwise linger
+     * until the data stops changing.
      */
     @Unique
     private void clearStaleGlow(ServerEntity.Synchronizer sync,
@@ -324,10 +273,7 @@ public abstract class ServerEntityMixin {
 
     // ========== Per-client glow customization ==========
 
-    /**
-     * Intercept the normal {@code sendToTrackingPlayersAndSelf} call inside
-     * {@code sendDirtyEntityData()} to customize the glowing flag per-client.
-     */
+    /** Customize the glowing flag per-client on every dirty-data broadcast. */
     @SuppressWarnings("unchecked")
     @Redirect(
             method = "sendDirtyEntityData",
@@ -352,8 +298,8 @@ public abstract class ServerEntityMixin {
         GlowConfigManager config = GlowConfigManager.getInstance();
 
         // Fast bails for states that can never be customized. Each one also
-        // drops a stale mod glow left over from a previous state — see
-        // clearStaleGlow for why the packet and the caches both matter.
+        // clears a stale mod glow from a previous state (see clearStaleGlow
+        // for why the packet and the caches both matter).
         if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
             clearStaleGlow(sync, dataPacket, config);
             sync.sendToTrackingPlayersAndSelf(packet);
@@ -365,35 +311,27 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        // No team has glow enabled — nothing to customize for any viewer,
-        // so skip the per-packet scoreboard/effect lookups entirely.
+        // No team has glow enabled — nothing to customize for any viewer.
         if (!config.hasEnabledTeams()) {
             clearStaleGlow(sync, dataPacket, config);
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
         }
 
-        // Skip when vanilla glowing is active: for LivingEntity,
-        // isCurrentlyGlowing() covers the GLOWING effect AND setGlowingTag,
-        // which is exactly what the shared-flags 0x40 bit reflects. Non-living
-        // entities (item frames, boats...) have no effect — only the glow tag
-        // can be set, so check the same bit directly; without this, the
-        // no-glow broadcast below would wrongly extinguish their vanilla glow.
+        // Vanilla glow (GLOWING effect for living entities, glow-tag bit for
+        // the rest) — forward unchanged; the no-glow broadcast below would
+        // wrongly extinguish it.
         boolean vanillaGlow = entity instanceof LivingEntity living
                 ? living.isCurrentlyGlowing()
                 : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
                         & GlowConstants.FLAG_GLOWING) != 0;
         if (vanillaGlow) {
-            // Settle the counters when stale. Without this, a vanilla-glowing
-            // entity in a glow-enabled team keeps tripping smartForcePacket's
-            // mismatch check on every quiet tick (the forwarded packet never
-            // settles the counters), forcing one redundant broadcast per tick
-            // forever — the one-shot-per-bump budget in AGENTS.md §10.1
-            // silently becomes unbounded. Safe to settle: while vanilla glow
-            // is active the mod's bit is invisible to every viewer, and the
-            // next flags change flows through the split path below, which
-            // clears any stale bit. The scoreboard lookup is skipped entirely
-            // when nothing is stale.
+            // Settle the counters when stale: the forwarded packet never does,
+            // so smartForcePacket would otherwise force a redundant broadcast
+            // on every quiet tick — the one-shot-per-bump budget in AGENTS.md
+            // §10.1 silently becomes unbounded. Safe: while vanilla glow is
+            // active the mod's bit is invisible, and the next flags change
+            // clears any stale bit via the split path below.
             if (cachedSyncEpoch != config.getSyncEpoch()
                     || cachedConfigVersion != config.getVersion()) {
                 PlayerTeam team = getGlowingTeam(entity);
@@ -405,20 +343,18 @@ public abstract class ServerEntityMixin {
             return;
         }
 
-        // Single scoreboard lookup per dirty send — it drives both the stale-
-        // glow cleanup below and the per-viewer teammate predicate. See
-        // AGENTS.md §10.2 for why the team is not cached on the ServerEntity.
+        // One lookup per dirty send drives both the stale-glow cleanup and the
+        // per-viewer predicate (not cached on the ServerEntity — AGENTS.md §10.2).
         PlayerTeam entityTeamObj = getGlowingTeam(entity);
 
-        // Previously customized by the mod but no longer in a glowing team:
-        // drop the stale glow bit. If the current packet already carries the
-        // flags entry, the plain forward below applies the no-glow value and
-        // clearStaleGlow just settles the caches without a second broadcast.
+        // Previously customized but no longer in a glowing team: drop the stale
+        // bit (clearStaleGlow skips a second broadcast when this packet already
+        // carries the flags entry).
         if (cachedTeamName != null && entityTeamObj == null) {
             clearStaleGlow(sync, dataPacket, config);
         }
 
-        // Entity not in a glowing team → no glow customization needed.
+        // Not in a glowing team → no customization needed.
         if (entityTeamObj == null) {
             sync.sendToTrackingPlayersAndSelf(packet);
             return;
@@ -427,25 +363,15 @@ public abstract class ServerEntityMixin {
         Predicate<ServerPlayer> isTeammate =
                 viewer -> entityTeamObj.equals(viewer.getTeam());
 
-        // Viewer-side resync: when the sync epoch or config version moved
-        // since this entity's last sync, viewers that left the glowing team
-        // still carry the mod's 0x40 bit client-side. A continuously-dirty
-        // entity (drowning AIR_SUPPLY, ticksFrozen, a mob farm) never lets
-        // packDirty() return null, so smartForcePacket never forces a flags
-        // packet for it — the no-glow broadcast below must carry the
-        // shared-flags entry itself to clear the stale bit. Each bump then
-        // costs one extra flags item per dirty packet for exactly one resync
-        // round, after which the standing per-packet cost resumes.
-        //
-        // The three caches settle together. The stale counters may stem from
-        // this entity's OWN team change rather than a viewer's — settling
-        // only cachedSyncEpoch/cachedConfigVersion would leave cachedTeamName
-        // stale (e.g. null after a dirty join), and the next quiet tick's
-        // fast bail in smartForcePacket would then trust it. When the entity
-        // later leaves the glowing team, the never-glow bail would see
-        // cachedTeamName == null and skip the forced clear, leaving
-        // ex-teammates with the stale 0x40 bit indefinitely. entityTeamObj
-        // is non-null here, so syncing to it is always safe.
+        // Viewer-side resync: when the counters moved since last sync, viewers
+        // that left the glowing team still carry the mod's 0x40 bit. A
+        // continuously-dirty entity never takes smartForcePacket, so the
+        // no-glow broadcast below must carry the flags entry itself to clear
+        // it. All three caches settle together: the stale counters may stem
+        // from the entity's OWN team change, and a counter-only settle would
+        // leave cachedTeamName stale for smartForcePacket's fast bail to
+        // trust (AGENTS.md §10.1). entityTeamObj is non-null here, so syncing
+        // to it is always safe.
         boolean viewerSideChanged = cachedSyncEpoch != config.getSyncEpoch()
                 || cachedConfigVersion != config.getVersion();
 
@@ -459,19 +385,11 @@ public abstract class ServerEntityMixin {
             cachedConfigVersion = config.getVersion();
         }
 
-        // Broadcast the no-glow variant to everyone (tracking + self) first,
-        // then overlay the glow variant for teammates only. Netty guarantees
-        // per-connection FIFO, so teammates end up with the glow bit set.
-        // This replaces two filtered passes (one scoreboard lookup per viewer
-        // in each) with a single plain broadcast + one filtered pass — and
-        // the entity itself, which is never part of its own tracking set
-        // (ChunkMap.TrackedEntity.updatePlayer excludes self), is covered by
-        // sendToTrackingPlayersAndSelf, so the former explicit self-send is
-        // unnecessary.
-        //
-        // Deliberate consequence: a glowing player does NOT see their own glow
-        // in third-person view — self gets the no-glow variant and the tracking
-        // set excludes self — only teammates see it.
+        // No-glow to everyone (tracking + self) first, glow overlay to
+        // teammates after — Netty's per-connection FIFO makes the overlay win.
+        // Self is never part of its own tracking set, so
+        // sendToTrackingPlayersAndSelf already covers it — deliberate: no
+        // self-glow in third-person view.
         sync.sendToTrackingPlayersAndSelf(noGlowPacket);
         sync.sendToTrackingPlayersFiltered(glowPacket, isTeammate);
     }
@@ -479,23 +397,17 @@ public abstract class ServerEntityMixin {
     // ========== Packet helper ==========
 
     /**
-     * Create a copy of the packet with the glowing flag (bit 0x40) modified,
-     * or return the original packet unchanged when the flag already matches
-     * the requested state (avoids allocating and re-serializing an identical
-     * packet for the common no-glow broadcast).
+     * Copy the packet with the glow bit (0x40) set or cleared; return the
+     * original unchanged when the flags already match (common no-glow case).
      *
-     * <p>When the packet does not contain the shared-flags entry (i.e. the
-     * flags did not change since the last send), the glow variant must add
-     * the entry based on the entity's <em>current</em> flags — a bare
-     * {@code 0x40} would replace the whole byte on the client and wipe
-     * the other flag bits (FALL_FLYING, SPRINTING, INVISIBLE, ON_FIRE...).
-     * {@code forceIncludeFlags} extends the same treatment to the no-glow
-     * variant: a viewer whose team membership just changed still carries the
-     * stale 0x40 bit client-side, and only a flags entry in the broadcast
-     * can clear it. Unlike the glow overlay, the forced no-glow variant
-     * keeps every dirty entry and APPENDS the flags entry — the no-glow
-     * broadcast is the only delivery of those entries, and replacing the
-     * packet with a flags-only entry would drop them for all viewers.
+     * <p>When the packet lacks the flags entry, the glow variant must derive
+     * the byte from the entity's <em>current</em> flags — a bare {@code 0x40}
+     * would replace the whole byte client-side and wipe the other flag bits
+     * (FALL_FLYING, SPRINTING, INVISIBLE, ON_FIRE...). {@code forceIncludeFlags}
+     * gives the no-glow variant the same treatment (a team-change viewer still
+     * carries the stale bit; only a flags entry can clear it): it APPENDS the
+     * entry, keeping every dirty entry — the no-glow broadcast is their only
+     * delivery.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
     private ClientboundSetEntityDataPacket modifyGlowFlag(
@@ -504,9 +416,8 @@ public abstract class ServerEntityMixin {
 
         int sharedFlagsId = EntityAccessor.getSharedFlagsId().id();
 
-        // Read-only pre-check: when the packet already carries the requested
-        // glow state, reuse the original packet without allocating a copied
-        // item list — this is the common case, since flags rarely change.
+        // Pre-check: when the packet already carries the requested glow state,
+        // reuse it without copying — the common case, flags rarely change.
         boolean foundFlag = false;
         boolean flagsMatch = true;
         for (SynchedEntityData.DataValue<?> item : packet.packedItems()) {
@@ -532,8 +443,8 @@ public abstract class ServerEntityMixin {
                 byte newValue = (byte) (shouldGlow
                         ? (current | GlowConstants.FLAG_GLOWING)
                         : (current & GlowConstants.GLOW_CLEAR_MASK));
-                // item.id() == sharedFlagsId was verified above — reuse
-                // it instead of hardcoding the flags slot id (0).
+                // item.id() == sharedFlagsId was verified above — reuse it
+                // instead of hardcoding the flags slot id (0).
                 SynchedEntityData.DataValue rawItem =
                         new SynchedEntityData.DataValue(
                                 item.id(), item.serializer(), newValue);
@@ -542,13 +453,10 @@ public abstract class ServerEntityMixin {
             }
         }
         if (!foundFlag) {
-            // No flags entry in the packet — the shared-flags value must be
-            // derived from the entity's current flags (a bare 0x40 would
-            // replace the whole byte on the client and wipe the other flag
-            // bits). The glow variant is cached while the server flags are
-            // unchanged: a continuously-dirty glowing entity would otherwise
-            // allocate a new packet every tick, and the other dirty entries
-            // were already delivered by the no-glow broadcast, so a
+            // No flags entry — derive the byte from the entity's current flags
+            // (a bare 0x40 would wipe the other flag bits). The glow overlay is
+            // cached while the server flags are unchanged: the other dirty
+            // entries were already delivered by the no-glow broadcast, so a
             // flags-only overlay is sufficient.
             byte current = entity.getEntityData().get(
                     EntityAccessor.getSharedFlagsId());
@@ -563,13 +471,11 @@ public abstract class ServerEntityMixin {
                 }
                 return cachedGlowPacket;
             }
-            // Forced no-glow variant — only reachable with forceIncludeFlags
-            // (the non-forced case returned the original packet above). Keep
-            // every dirty entry and append the no-glow flags entry: the
-            // no-glow broadcast is the only delivery of the dirty entries
-            // this round, so a flags-only packet would drop them for all
-            // viewers. Built at most once per epoch bump, so it is not
-            // cached.
+            // Forced no-glow — only reachable with forceIncludeFlags (the
+            // non-forced case returned the original above). Keep every dirty
+            // entry and append the no-glow flags entry: the no-glow broadcast
+            // is their only delivery, so a flags-only packet would drop them
+            // for all viewers. Built at most once per bump, so it is not cached.
             items.add(new SynchedEntityData.DataValue<>(
                     sharedFlagsId, EntityDataSerializers.BYTE,
                     (byte) (current & GlowConstants.GLOW_CLEAR_MASK)));

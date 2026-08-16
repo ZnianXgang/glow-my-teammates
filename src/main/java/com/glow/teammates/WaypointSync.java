@@ -13,18 +13,13 @@ import java.util.Set;
  * Rebuilds locator-bar waypoint connections so the
  * {@code locator_bar_teammates_only} filter is re-evaluated.
  *
- * <p>The filter in {@code LivingEntityMixin} is <em>receiver-driven</em>
- * ({@code makeWaypointConnectionWith(receiver)} decides by the receiver's
- * team), but vanilla's {@code remakeConnections(waypoint)} only rebuilds
- * connections <em>from one sender</em>, and vanilla team-change hooks
- * ({@code ServerScoreboard.updatePlayerWaypoint} /
- * {@code updateTeamWaypoints}) only cover the changed player as a
- * <em>sender</em>. The receiver side — what the changed player sees on their
- * own locator bar — is only re-evaluated when a connection turns
- * {@code isBroken()} (distance/chunk state changes), which may never happen
- * for an AFK player. {@link #rebuildForPlayer} closes that gap: it rebuilds
- * every player-sent connection in the affected player's dimension, which
- * covers both directions.
+ * <p>The filter is <em>receiver-driven</em> (decided by the receiver's team),
+ * but vanilla's rebuilds only cover the changed player as a <em>sender</em>.
+ * The receiver side — what the changed player sees on their own bar — is only
+ * re-evaluated when a connection turns {@code isBroken()}, which may never
+ * happen for an AFK player. {@link #rebuildForPlayer} closes that gap by
+ * rebuilding every player-sent connection in the affected player's dimension,
+ * covering both directions.
  *
  * <p>All methods run on the server thread (command execution and scoreboard
  * events).
@@ -36,29 +31,22 @@ public final class WaypointSync {
      * Dimensions whose connections need a rebuild for a team change, drained
      * once at the next tick boundary (see {@link #flushPendingRebuilds}).
      *
-     * <p>Deferring (instead of rebuilding inline) both collapses a burst of
-     * membership changes inside one tick into a single pass and guarantees
-     * the pass sees the <em>final</em> team state:
-     * {@code Scoreboard.addPlayerToTeam} removes-then-adds inside one tick,
-     * so an inline rebuild on the remove hook would evaluate the switcher
-     * mid-transition as teamless and leave their own locator bar showing
-     * everyone until the next rebuild trigger.
+     * <p>Deferring collapses a burst of membership changes into a single pass
+     * and guarantees the pass sees the <em>final</em> team state:
+     * {@code addPlayerToTeam} removes-then-adds inside one tick, so an inline
+     * rebuild on the remove hook would evaluate a team switcher mid-transition
+     * as teamless.
      */
     private static final Set<ServerLevel> pendingRebuilds =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
     /**
-     * Rebuild every player-transmitted connection in every dimension.
-     * Used by the command paths ({@code /teamglow on|off}, team add/remove,
-     * config switch toggles) where the filter rules themselves changed.
-     *
-     * <p>Only player transmitters are rebuilt. Non-player entities do not
-     * transmit waypoints by default ({@code WAYPOINT_TRANSMIT_RANGE} defaults
-     * to 0), so this is sufficient unless a third-party mod raises that
-     * attribute.
-     *
-     * <p>If the locator-bar game rule is off, no receiver can have
-     * connections, so the whole dimension is skipped.
+     * Rebuild every player-transmitted connection in every dimension — used
+     * by the command paths ({@code /teamglow on|off}, team add/remove, config
+     * toggles) where the filter rules themselves changed. Only player
+     * transmitters are rebuilt (non-players don't transmit by default:
+     * {@code WAYPOINT_TRANSMIT_RANGE} defaults to 0). Dimensions with the
+     * locator-bar game rule off are skipped — no receiver can have connections.
      */
     public static void rebuildAll(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
@@ -74,16 +62,11 @@ public final class WaypointSync {
     }
 
     /**
-     * Mark the affected player's dimension for a receiver-side rebuild at
-     * the next tick boundary: every player-sent connection in that player's
-     * dimension, which re-evaluates what shows up on their locator bar (and,
-     * redundantly with vanilla's sender-side rebuild, what other players see
-     * of them).
-     *
-     * <p>Called from {@code ScoreboardMixin} when a player joins or leaves a
-     * glow-enabled team while {@code locator_bar_teammates_only} is on.
-     * Offline or non-player members (mobs joined via their UUID string) are
-     * skipped — they have no connections to rebuild.
+     * Mark the affected player's dimension for a receiver-side rebuild at the
+     * next tick boundary. Called from {@code ScoreboardMixin} on glow-enabled
+     * team changes while {@code locator_bar_teammates_only} is on. Offline or
+     * non-player members (mobs joined via their UUID string) are skipped —
+     * they have no connections to rebuild.
      */
     public static void rebuildForPlayer(MinecraftServer server, String playerName) {
         ServerPlayer player = server.getPlayerList().getPlayerByName(playerName);
@@ -149,8 +132,7 @@ public final class WaypointSync {
 
     /**
      * Drop the pending-rebuild set. Called on {@code SERVER_STOPPING} so
-     * unloaded dimension instances don't linger (an integrated server can
-     * start and stop several times in one JVM).
+     * unloaded dimensions don't linger across integrated-server restarts.
      */
     public static void clear() {
         pendingRebuilds.clear();

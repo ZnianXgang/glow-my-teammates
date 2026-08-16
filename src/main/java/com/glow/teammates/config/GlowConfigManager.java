@@ -23,10 +23,9 @@ import java.util.*;
  * persistence.
  *
  * <p><strong>Threading:</strong> all mutable state is owned by the server
- * thread and must only be written from it (command execution, ServerEntity
- * ticks, Scoreboard events). Reading live state (getters such as
- * {@code isEnabled()}) from async contexts is unsupported; only
- * {@link #getEnabledTeams()} returns a defensive snapshot that is safe to
+ * thread (commands, ServerEntity ticks, Scoreboard events) and must only be
+ * written from it; reading live state from async contexts is unsupported.
+ * Only {@link #getEnabledTeams()} returns a defensive snapshot safe to
  * iterate anywhere.
  */
 public class GlowConfigManager {
@@ -43,35 +42,33 @@ public class GlowConfigManager {
 
     /**
      * The running server, set by {@link #loadFromWorld} and cleared on
-     * {@code SERVER_STOPPING}. Lets server-thread hooks (e.g. the team-change
-     * waypoint rebuild in {@code ScoreboardMixin}) reach the player list
+     * {@code SERVER_STOPPING}. Lets server-thread hooks reach the player list
      * without {@code Entity.getServer()} (removed in 26.1+). May be
      * {@code null} on the client or before the first world load.
      */
     private MinecraftServer server;
 
     /**
-     * Monotonically increasing counter bumped on every state change.
-     * Used by the mixin to detect when a full resync is needed.
+     * Monotonically increasing counter bumped on every state change — the
+     * mixin uses it to detect when a full resync is needed.
      */
     private long version;
 
     /**
-     * Bumped whenever a player joins or leaves ANY scoreboard team.
-     * Allows {@link com.glow.teammates.mixin.ServerEntityMixin} to detect
+     * Bumped on every team membership change; lets the mixin detect
      * viewer-side team changes and force a glow resync for affected viewers.
      */
     private long syncEpoch;
 
     /**
      * Whether a viewer in a glow-enabled team sees only their own teammates
-     * on the locator bar (feature: locator bar filter). Default {@code false}.
+     * on the locator bar. Default {@code false}.
      */
     private boolean locatorBarTeammatesOnly;
 
     /**
-     * Whether non-player entities (mobs) are eligible for team glow.
-     * Default {@code false} — once enabled, mob-dense farms pay per-dirty-packet
+     * Whether non-player entities (mobs) are eligible for team glow. Default
+     * {@code false} — once enabled, mob-dense farms pay per-dirty-packet
      * overhead in {@code ServerEntityMixin#redirectSendData}.
      */
     private boolean nonPlayerGlow;
@@ -81,23 +78,20 @@ public class GlowConfigManager {
     }
 
     /**
-     * Load config from the world save directory.
-     * Called when the server starts.
+     * Load config from the world save directory. Called when the server starts.
      */
     public void loadFromWorld(MinecraftServer server) {
         this.server = server;
         // LevelResource.ROOT resolves to a "." element (./world/.), so the
-        // bare resolve would log a redundant separator — normalize the
-        // resolved path (./world/./glow-my-teammates.json on Linux,
-        // .\world\.\glow-my-teammates.json on Windows). The normalized path
-        // still targets the same file; only the log text changes.
+        // bare resolve would log a redundant separator — normalize it (the
+        // normalized path targets the same file; only the log text changes).
         Path worldPath = server.getWorldPath(LevelResource.ROOT);
         this.configPath = worldPath.resolve(FILENAME).normalize();
         File file = configPath.toFile();
 
         if (file.exists()) {
             try {
-                // Read the raw text once: the 1.1.1 schema migration needs to
+                // Read the raw text once: the schema migration needs to
                 // inspect the old key name that Gson would silently drop.
                 String rawJson = Files.readString(file.toPath(), StandardCharsets.UTF_8);
                 ConfigData data = GSON.fromJson(rawJson, ConfigData.class);
@@ -107,8 +101,8 @@ public class GlowConfigManager {
                     if (data.teams != null) {
                         for (String team : data.teams) {
                             // Skip null and empty names — an empty string can
-                            // never match a real team (vanilla forbids it) and
-                            // would otherwise be persisted back on the next save.
+                            // never match a real team and would otherwise be
+                            // persisted back on the next save.
                             if (team != null && !team.isEmpty()) {
                                 this.enabledTeams.add(team);
                             }
@@ -124,16 +118,11 @@ public class GlowConfigManager {
                         this.locatorBarTeammatesOnly = false;
                         this.nonPlayerGlow = false;
                     }
-                    // Schema migration: configs written before config_version
-                    // existed have a null version array — treat them as legacy
-                    // (major 0) and rewrite with the current schema. The 1.1.1
-                    // rename (locatorBarHideOtherGlowingTeams →
-                    // locatorBarTeammatesOnly) also rewrites the file so the
-                    // old key is dropped. A schema-1 file with a literal-null
-                    // `config` sub-object is reset to defaults above and must
-                    // be rewritten too, so it stops reloading as broken. Runs
-                    // before version++ so the migration write keeps the
-                    // cache-invalidation semantics intact (the config did change).
+                    // Schema migration: a missing version array (legacy, major 0),
+                    // the pre-1.1.1 key rename, or a literal-null `config`
+                    // sub-object all rewrite the file with the current schema.
+                    // Runs before version++ so the migration write keeps the
+                    // cache-invalidation semantics intact.
                     int major = (data.configVersion == null || data.configVersion.length == 0)
                             ? 0 : data.configVersion[0];
                     boolean migratedSwitchName = migrateLocatorBarSwitchName(rawJson);
@@ -145,10 +134,9 @@ public class GlowConfigManager {
                     }
                     this.version++;
                 } else {
-                    // The file contains the literal JSON "null" — Gson returns
-                    // null without throwing. Treat it like a corrupt file:
-                    // reset to defaults, persist the repair, and invalidate
-                    // any cached glow state from a previous world.
+                    // The file contains the literal JSON "null" (Gson returns
+                    // null without throwing) — treat it like a corrupt file:
+                    // reset to defaults, persist the repair, invalidate caches.
                     GlowMyTeammates.LOGGER.warn(
                             "Config file contains literal null, resetting to defaults");
                     resetToDefaultsAndPersist();
@@ -176,10 +164,9 @@ public class GlowConfigManager {
     }
 
     /**
-     * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams} to the
-     * renamed {@code locatorBarTeammatesOnly}. Gson silently ignores unknown
-     * keys during deserialization, so the old key has to be inspected on the
-     * raw JSON text. No-op unless the old key exists; returns whether the file
+     * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams} to
+     * {@code locatorBarTeammatesOnly}. Gson silently ignores unknown keys, so
+     * the old key is inspected on the raw JSON text. Returns whether the file
      * needs a rewrite to drop the old key.
      */
     private boolean migrateLocatorBarSwitchName(String rawJson) {
@@ -210,11 +197,9 @@ public class GlowConfigManager {
     }
 
     /**
-     * Reset all runtime state to defaults, persist the fallback so a corrupt
-     * or literal-null config file is repaired instead of re-reporting the
-     * error on every server start, and bump {@code version} so entities that
-     * already cached the old state notice the fallback and force a glow
-     * resync.
+     * Reset to defaults and persist, so a corrupt or literal-null config file
+     * is repaired instead of re-reporting the error on every start; then bump
+     * {@code version} so entities that cached the old state force a resync.
      */
     private void resetToDefaultsAndPersist() {
         this.enabled = true;
@@ -270,13 +255,10 @@ public class GlowConfigManager {
      * Replace {@code target} with {@code tmpPath}, preferring an atomic move.
      *
      * <p>ATOMIC_MOVE is not supported on every filesystem, and on Windows
-     * replacing an <em>existing</em> file this way can throw
-     * {@link AccessDeniedException} rather than
-     * {@link AtomicMoveNotSupportedException} (the underlying
-     * {@code MoveFileExW} reports {@code ERROR_ACCESS_DENIED}). Either way we
+     * replacing an <em>existing</em> file can throw {@link AccessDeniedException}
+     * rather than {@link AtomicMoveNotSupportedException}. Either way we
      * downgrade to a plain {@code REPLACE_EXISTING} move, retrying briefly in
-     * case the target is transiently locked (e.g. by an antivirus scanner or
-     * cloud sync).
+     * case the target is transiently locked (antivirus, cloud sync).
      */
     private static void moveIntoPlace(Path tmpPath, Path target) throws IOException {
         try {
@@ -345,14 +327,9 @@ public class GlowConfigManager {
     }
 
     /**
-     * Call when a player joins or leaves any team, so the mixin can force
-     * a glow-state resync for all viewers of glowing entities.
-     *
-     * <p>The epoch is intentionally global: any bump resyncs every glowing
-     * entity, which is acceptable on Fabric-scale servers (<100 players) and
-     * collapses into one resync round per tick regardless of how many bumps
-     * happen inside it (counters are compared with {@code !=}). See AGENTS.md
-     * §10.1 before "optimizing" this to per-team granularity.
+     * Call when a player joins or leaves any team, so the mixin can force a
+     * glow-state resync for all viewers of glowing entities. Intentionally
+     * global — see AGENTS.md §10.1 before "optimizing" to per-team granularity.
      */
     public void bumpSyncEpoch() {
         this.syncEpoch++;
@@ -369,8 +346,7 @@ public class GlowConfigManager {
     /**
      * Deliberately <em>not</em> idempotent (unlike the other setters): the
      * caller must guard against already-enabled teams before calling, which
-     * {@link com.glow.teammates.command.GlowCommand#addTeam} does. See
-     * AGENTS.md §4.2 — do not add a second unguarded call path.
+     * {@code GlowCommand#addTeam} does (AGENTS.md §4.2).
      */
     public void addTeam(String teamName) {
         enabledTeams.add(teamName);
@@ -417,9 +393,8 @@ public class GlowConfigManager {
     }
 
     public Set<String> getEnabledTeams() {
-        // Return a snapshot, not a live view: other mods (e.g. permission
-        // plugins reading from async threads) must never hit a CME while
-        // iterating the server-thread-owned backing set.
+        // Snapshot, not a live view: async readers (e.g. permission plugins)
+        // must never hit a CME while iterating the server-thread-owned set.
         return Collections.unmodifiableSet(new LinkedHashSet<>(enabledTeams));
     }
 
