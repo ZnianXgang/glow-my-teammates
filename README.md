@@ -4,13 +4,11 @@ Make teammates glow for each other — and decide exactly who sees that glow, on
 
 A server-side Fabric mod for Minecraft 26.1 / 26.2 built on the vanilla `/team` system. No custom team management, no client mod required.
 
-## What it does
+## Features
 
-- Players in the same team see each other glowing (the vanilla `0x40` glow flag, customized per viewer).
-- Glow is opt-in per team: only teams you enable through `/teamglow team add` participate.
+- Teammates see each other glowing (the vanilla `0x40` glow flag, customized per viewer).
+- Glow is opt-in per team: `/teamglow team add <team>`.
 - Nothing about vanilla behavior changes until you enable something.
-
-## Feature overview
 
 | Feature | How to enable |
 |---|---|
@@ -27,54 +25,47 @@ A server-side Fabric mod for Minecraft 26.1 / 26.2 built on the vanilla `/team` 
 | Fabric API | any | any |
 | Java | >= 25 | >= 25 |
 
-Works on dedicated servers, singleplayer and LAN worlds. The mod also loads on the client side of a singleplayer session, but all logic runs on the integrated server — vanilla clients on a server can connect without installing anything.
+Works on dedicated servers, singleplayer and LAN worlds; vanilla clients on a server can connect without installing anything.
 
 ## Quick start
 
-1. Create teams with vanilla commands:
-   ```
-   /team add red
-   /team join red @a
-   ```
-2. Enable glow for the team:
-   ```
-   /teamglow team add red
-   ```
-3. Done — teammates now glow for each other.
+```
+/team add red
+/team join red @a
+/teamglow team add red
+```
+
+Done — teammates now glow for each other.
 
 ## Commands
 
-Every command is gated by a permission node under `glow-my-teammates.command.*`, compatible with LuckPerms. Without a permission mod, commands fall back to vanilla OP checks: management commands need OP level 2, read-only commands are available to everyone.
+Every command is gated by a permission node under `glow-my-teammates.command.*`, compatible with LuckPerms. Without a permission mod, management commands fall back to OP level 2, read-only commands are available to everyone.
 
 | Command | Permission node (fallback) | Description |
 |---|---|---|
-| `/teamglow on` | `glow-my-teammates.command.on` (OP 2) | Enable team glow globally |
-| `/teamglow off` | `glow-my-teammates.command.off` (OP 2) | Disable team glow globally |
+| `/teamglow on` / `off` | `glow-my-teammates.command.on` / `.off` (OP 2) | Enable / disable team glow globally |
 | `/teamglow status` | `glow-my-teammates.command.status` (all) | Show global state and enabled teams |
 | `/teamglow team add <team>` | `glow-my-teammates.command.team.add` (OP 2) | Enable glow for a team |
 | `/teamglow team remove <team>` | `glow-my-teammates.command.team.remove` (OP 2) | Disable glow for a team |
 | `/teamglow team list` | `glow-my-teammates.command.team.list` (all) | List teams with glow enabled |
-| `/teamglow config` | `glow-my-teammates.command.config` (OP 2) | Show current feature switches |
+| `/teamglow config` | `glow-my-teammates.command.config` (OP 2) | Show feature switches |
 | `/teamglow config <switch> <true\|false>` | `glow-my-teammates.command.config` (OP 2) | Toggle a feature switch |
 
 ### Feature switches
 
 | Switch | Default | Effect |
 |---|---|---|
-| `non_player_glow` | `false` | When on, mobs that are in a glow-enabled team glow for their teammates. Note: with this on, every dirty entity-data packet of every tracked entity goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
-| `locator_bar_teammates_only` | `false` | When on, the locator bar follows asymmetric rules: a viewer who is in a glow-enabled team **sees only their own teammates** — members of other teams (glow-enabled or not) and teamless players are hidden from their locator bar. Viewers who are not in a glow-enabled team see everyone, unchanged. |
+| `non_player_glow` | `false` | Mobs in a glow-enabled team glow for their teammates. Note: every dirty entity-data packet then goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
+| `locator_bar_teammates_only` | `false` | A viewer in a glow-enabled team sees only their own teammates on the locator bar; members of other teams and teamless players are hidden. Viewers outside glow-enabled teams see everyone, unchanged. |
 
 ## Config file
 
-Stored per world at `<world>/glow-my-teammates.json`. Example for mod version **1.1.2** (config schema `[1, 1]`):
+Stored per world at `<world>/glow-my-teammates.json` (schema `[1, 1]`):
 
 ```json
 {
   "enabled": true,
-  "teams": [
-    "red",
-    "blue"
-  ],
+  "teams": ["red", "blue"],
   "configVersion": [1, 1],
   "config": {
     "locatorBarTeammatesOnly": false,
@@ -83,34 +74,30 @@ Stored per world at `<world>/glow-my-teammates.json`. Example for mod version **
 }
 ```
 
-- `configVersion` is the disk schema version. Configs written before it existed are migrated automatically on first load — you never have to edit the file by hand.
-- Edits made by commands are written atomically (temp file + atomic move); if writing fails, you are told in chat instead of silently losing the change.
+- Legacy configs are migrated automatically on first load — never edit the file by hand.
+- Command edits are written atomically (temp file + atomic move); a failed write is reported in chat instead of silently losing the change.
 
 ## How it interacts with vanilla
 
-- **Vanilla glowing is untouched.** Spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work — the mod only adds or clears its own bit on top.
-- **`/team remove <team>` cleans up immediately.** When a team is deleted, viewers stop seeing the glow right away (no stale glow until re-login).
-- **No client mod needed.** The glow flag is just an entity-data bit; vanilla clients render it natively. Server-side translations (English & Simplified Chinese) mean even command feedback shows readable text on vanilla clients.
-- **No self-glow in third person.** A glowing player does not see their own glow in F5 view — only teammates do. Deliberate: self always receives the no-glow variant.
-- **Network footprint.** For each glowing entity, every data update sends one extra tiny packet per teammate. Negligible for small groups; on servers with dozens of players and many glowing entities (or mob glow on dense farms) the extra bandwidth adds up — keep glow enabled only for the teams that need it.
+- **Vanilla glowing is untouched** — spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work; the mod only adds or clears its own bit on top.
+- **`/team remove <team>` cleans up immediately** — no stale glow until re-login.
+- **No client mod needed** — the glow flag is just an entity-data bit, vanilla clients render it natively; command feedback is translated server-side (English & Simplified Chinese).
+- **No self-glow in third person** — deliberate; self always receives the no-glow variant.
+- **Network footprint** — each data update sends one extra tiny packet per teammate. Negligible for small groups; on large servers keep glow enabled only for the teams that need it.
 
 ## Building from source
 
-This project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported Minecraft versions from one codebase.
+Uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported versions from one codebase.
 
 ```bash
 ./gradlew build
 ```
 
-Output:
-- `versions/26.1/build/libs/glow-my-teammates-1.1.2+26.1.jar`
-- `versions/26.2/build/libs/glow-my-teammates-1.1.2+26.2.jar`
-
-The Server-Translations API dependency is bundled into the jar — a single jar is all you need to install.
+Output: `versions/26.1/build/libs/glow-my-teammates-1.1.2+26.1.jar` and `versions/26.2/build/libs/glow-my-teammates-1.1.2+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
 
 ## Built with
 
-This mod was built with [OpenCode](https://opencode.ai) and [Claude Code](https://claude.com/claude-code) using the DeepSeek V4 model.
+[OpenCode](https://opencode.ai) and [Claude Code](https://claude.com/claude-code) using the DeepSeek V4 model.
 
 ## License
 
