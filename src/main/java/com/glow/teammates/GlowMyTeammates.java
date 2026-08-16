@@ -34,8 +34,10 @@ public class GlowMyTeammates implements ModInitializer {
 
 		// Drain deferred locator-bar rebuilds at the tick boundary — see
 		// WaypointSync for why the rebuild must see the final team state.
+		// The server reference lets the drain skip dimensions left behind by
+		// a crashed previous server (see WaypointSync.flushPendingRebuilds).
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
-			WaypointSync.flushPendingRebuilds();
+			WaypointSync.flushPendingRebuilds(server);
 		});
 
 		// Register commands

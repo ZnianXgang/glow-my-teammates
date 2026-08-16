@@ -108,10 +108,18 @@ public final class WaypointSync {
      * drain loop keeps it pending (a live for-each plus a trailing
      * {@code clear()} would either drop the re-added mark or throw).
      */
-    public static void flushPendingRebuilds() {
+    public static void flushPendingRebuilds(MinecraftServer server) {
         while (!pendingRebuilds.isEmpty()) {
             ServerLevel level = pendingRebuilds.iterator().next();
             pendingRebuilds.remove(level);
+            // Crash-recovery guard: a server that died without firing
+            // SERVER_STOPPING (OOM, JVM error) leaves its dimensions in the
+            // pending set, and the integrated server may start again on the
+            // same JVM and drain them here. Never touch a level that is not
+            // part of the running server — see isPartOf.
+            if (!isPartOf(server, level)) {
+                continue;
+            }
             if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
                 continue; // The rule was turned off after the mark — nothing to rebuild.
             }
@@ -121,6 +129,22 @@ public final class WaypointSync {
                 }
             }
         }
+    }
+
+    /**
+     * Whether {@code level} is one of the dimensions of the running server.
+     * {@code MinecraftServer.getAllLevels()} returns an {@code Iterable},
+     * so identity is checked with an explicit loop rather than
+     * {@code contains}. Drops stale entries from the pending set by
+     * returning {@code false} for levels of a previous, crashed server.
+     */
+    private static boolean isPartOf(MinecraftServer server, ServerLevel level) {
+        for (ServerLevel candidate : server.getAllLevels()) {
+            if (candidate == level) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
