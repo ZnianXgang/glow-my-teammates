@@ -66,7 +66,9 @@ public final class WaypointSync {
                 continue;
             }
             for (ServerPlayer player : level.players()) {
-                level.getWaypointManager().remakeConnections(player);
+                if (level.getWaypointManager().transmitters().contains(player)) {
+                    level.getWaypointManager().remakeConnections(player);
+                }
             }
         }
     }
@@ -114,7 +116,9 @@ public final class WaypointSync {
                 continue; // The rule was turned off after the mark — nothing to rebuild.
             }
             for (ServerPlayer other : level.players()) {
-                level.getWaypointManager().remakeConnections(other);
+                if (level.getWaypointManager().transmitters().contains(other)) {
+                    level.getWaypointManager().remakeConnections(other);
+                }
             }
         }
     }

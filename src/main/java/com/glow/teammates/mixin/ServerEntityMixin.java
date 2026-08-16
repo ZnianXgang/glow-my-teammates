@@ -113,11 +113,15 @@ public abstract class ServerEntityMixin {
             // never be customized by the mod. Sync the caches anyway: a mob
             // that glowed before the switch was turned off (cachedTeamName
             // set) and never produces dirty data again would otherwise keep
-            // stale cached state forever.
+            // stale cached state forever. If it was previously customized, force
+            // one packet so stale client-side glow is cleared even when the
+            // command-path clearNonPlayerGlow wasn't run (e.g. another mod called
+            // setNonPlayerGlow(false) directly).
+            boolean hadCachedTeam = cachedTeamName != null;
             cachedTeamName = null;
             cachedConfigVersion = config.getVersion();
             cachedSyncEpoch = config.getSyncEpoch();
-            return null;
+            return hadCachedTeam ? buildFlagsPacket() : null;
         }
 
         long currentConfigVersion = config.getVersion();

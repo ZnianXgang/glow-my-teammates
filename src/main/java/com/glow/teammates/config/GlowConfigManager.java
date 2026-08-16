@@ -138,7 +138,10 @@ public class GlowConfigManager {
                             ? 0 : data.configVersion[0];
                     boolean migratedSwitchName = migrateLocatorBarSwitchName(rawJson);
                     if (major < 1 || migratedSwitchName || data.config == null) {
-                        save();
+                        if (!save()) {
+                            GlowMyTeammates.LOGGER.warn(
+                                    "Config migration/repair failed; the file will be retried on next start");
+                        }
                     }
                     this.version++;
                 } else {
@@ -176,8 +179,8 @@ public class GlowConfigManager {
      * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams} to the
      * renamed {@code locatorBarTeammatesOnly}. Gson silently ignores unknown
      * keys during deserialization, so the old key has to be inspected on the
-     * raw JSON text. No-op unless the old key exists and the new one does not;
-     * returns whether the file needs a rewrite to drop the old key.
+     * raw JSON text. No-op unless the old key exists; returns whether the file
+     * needs a rewrite to drop the old key.
      */
     private boolean migrateLocatorBarSwitchName(String rawJson) {
         try {
@@ -186,12 +189,11 @@ public class GlowConfigManager {
             if (!(configElement instanceof JsonObject configObj)) {
                 return false;
             }
-            if (!configObj.has("locatorBarHideOtherGlowingTeams")
-                    || configObj.has("locatorBarTeammatesOnly")) {
+            if (!configObj.has("locatorBarHideOtherGlowingTeams")) {
                 return false;
             }
             boolean oldValue = configObj.get("locatorBarHideOtherGlowingTeams").getAsBoolean();
-            if (oldValue) {
+            if (oldValue && !configObj.has("locatorBarTeammatesOnly")) {
                 this.locatorBarTeammatesOnly = true;
             }
             GlowMyTeammates.LOGGER.info(
