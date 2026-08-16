@@ -50,6 +50,19 @@ public final class GlowCommand {
                             "glow-my-teammates", "command.status"),
                     PermissionLevel.ALL);
 
+    /**
+     * Side effects a config-switch change may trigger beyond persisting the
+     * value. Named constants keep the call sites readable — a raw boolean
+     * pair is easy to transpose and would silently wire the wrong side
+     * effect to a switch.
+     */
+    private enum SwitchEffect {
+        /** Re-evaluate every locator-bar connection when the switch changes. */
+        REBUILD_WAYPOINTS,
+        /** Clear mod-overlaid glow on non-player entities when the switch turns off. */
+        CLEAR_NON_PLAYER_GLOW
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var root = Commands.literal("teamglow");
 
@@ -151,7 +164,7 @@ public final class GlowCommand {
                                 BoolArgumentType.getBool(ctx, "value"),
                                 () -> GlowConfigManager.getInstance().isLocatorBarTeammatesOnly(),
                                 GlowConfigManager.getInstance()::setLocatorBarTeammatesOnly,
-                                true, false))));
+                                SwitchEffect.REBUILD_WAYPOINTS))));
 
         // /teamglow config non_player_glow <true|false>
         configNode.then(Commands.literal("non_player_glow")
@@ -162,7 +175,7 @@ public final class GlowCommand {
                                 BoolArgumentType.getBool(ctx, "value"),
                                 () -> GlowConfigManager.getInstance().isNonPlayerGlow(),
                                 GlowConfigManager.getInstance()::setNonPlayerGlow,
-                                false, true))));
+                                SwitchEffect.CLEAR_NON_PLAYER_GLOW))));
 
         root.then(configNode);
 
@@ -252,8 +265,11 @@ public final class GlowCommand {
 
         // Team glow eligibility feeds the locator-bar filter — rebuild the
         // waypoint connections so already-established ones are re-evaluated
-        // immediately instead of lingering under the old rules.
-        if (config.isLocatorBarTeammatesOnly()) {
+        // immediately instead of lingering under the old rules. Skipped while
+        // the mod is off: the filter is inert then (LivingEntityMixin's first
+        // guard passes everything through), and toggling the mod back on
+        // rebuilds via setEnabled anyway.
+        if (config.isEnabled() && config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
@@ -292,8 +308,9 @@ public final class GlowCommand {
 
         // Same re-evaluation as addTeam: removing a team from the glow config
         // must let existing (previously filtered) locator-bar connections
-        // appear right away.
-        if (config.isLocatorBarTeammatesOnly()) {
+        // appear right away. Skipped while the mod is off — same reasoning as
+        // addTeam.
+        if (config.isEnabled() && config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
@@ -340,11 +357,13 @@ public final class GlowCommand {
     private static int setConfigSwitch(CommandSourceStack source, String feature,
                                        boolean value, BooleanSupplier oldValueGetter,
                                        Consumer<Boolean> setter,
-                                       boolean rebuildsWaypoints, boolean clearsNonPlayerGlow) {
+                                       SwitchEffect effect) {
         GlowConfigManager config = GlowConfigManager.getInstance();
         boolean oldValue = oldValueGetter.getAsBoolean();
-        boolean waypointsAffected = rebuildsWaypoints && oldValue != value;
-        boolean glowCleared = clearsNonPlayerGlow && oldValue && !value;
+        boolean waypointsAffected = effect == SwitchEffect.REBUILD_WAYPOINTS
+                && oldValue != value;
+        boolean glowCleared = effect == SwitchEffect.CLEAR_NON_PLAYER_GLOW
+                && oldValue && !value;
         setter.accept(value);
         if (!config.save()) {
             setter.accept(oldValue); // Roll back the in-memory state.
