@@ -44,9 +44,11 @@ public class GlowConfigManager {
      * The running server, set by {@link #loadFromWorld} and cleared on
      * {@code SERVER_STOPPING}. Lets server-thread hooks reach the player list
      * without {@code Entity.getServer()} (removed in 26.1+). May be
-     * {@code null} on the client or before the first world load.
+     * {@code null} on the client or before the first world load. Volatile:
+     * {@code ScoreboardMixin} reads it from the client thread in
+     * singleplayer/LAN (AGENTS.md §8.7).
      */
-    private MinecraftServer server;
+    private volatile MinecraftServer server;
 
     /**
      * Monotonically increasing counter bumped on every state change — the
