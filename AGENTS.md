@@ -133,6 +133,8 @@ The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)`
 
 ## 7. Multi-version build (Stonecutter)
 
+**26.1+ background**: Minecraft 26.1 (the first 2026-renamed release) removed obfuscation and raised the minimum Java to 25. With obfuscation gone, **Yarn is unavailable from 26.1 on** (last supported is 1.21.11) — 26.1+ mods use **Mojmap** (official names ship in the jar, so `build.gradle` has no `mappings` line). Version strings use `YY.D.H`: releases `26.1`, hotfixes `26.1.1`, snapshots `26.1-snapshot-1`, pre-releases `26.1-pre-1`, release candidates `26.1-rc-1`. Snapshots are non-semver, so a version gate over one needs `sc.compareLenient`/`sc.evalLenient` or a `project:version` mapping.
+
 - **VCS version is 26.2** — the canonical source in `src/`. Always commit from it.
 - Per-version deps live in `versions/<mc>/gradle.properties`; server-translations-api differs per MC and is bundled with `implementation include(...)`.
 - Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates.
@@ -149,7 +151,7 @@ The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)`
 
 1. **Never use `Entity.getServer()`** — removed in 26.1+. Use `entity.level().getScoreboard()` etc.
 2. **Never toggle entity data directly** (`entity.getEntityData().set(...)`) — it corrupts server-side state and desyncs vanilla. Always inject missing packets (`@ModifyVariable`/`@Redirect`/`@Inject`) instead.
-3. **Mojang mappings only.** `Identifier` is `net.minecraft.resources.Identifier`, not `ResourceLocation`; `net.minecraft.server.permissions.PermissionLevel`, not a Fabric enum.
+3. **Mojang mappings only.** `Identifier` is `net.minecraft.resources.Identifier`, not `ResourceLocation`; `net.minecraft.server.permissions.PermissionLevel`, not a Fabric enum. (26.1+ dropped obfuscation, so Yarn is gone — see §7.)
 4. **Non-glow team changes must not bump `syncEpoch`** — auto-team plugins cause constant membership churn; bumping for non-glow teams would resync the whole server for nothing.
 5. **Idempotent setters or pay the resync cost** (§4.2 — and keep the command-side guard on `addTeam`).
 6. **`configVersion` migration must precede `version++`** (§4.3).
