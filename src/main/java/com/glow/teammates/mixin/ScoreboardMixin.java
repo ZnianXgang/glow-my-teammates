@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -99,12 +100,17 @@ public abstract class ScoreboardMixin {
      * this, the syncEpoch would not bump and already-glowing viewers would
      * keep the stale bit indefinitely. Vanilla's {@code onTeamRemoved}
      * rebuilds each member's sender-side connections; the receiver side is
-     * covered here via the whole member list — {@code team.getPlayers()}
-     * still holds the members ({@code removePlayerTeam} never empties it).
+     * covered here via the whole member list.
+     *
+     * <p><strong>MC-upgrade check:</strong> this assumes {@code removePlayerTeam}
+     * leaves {@code team.getPlayers()} intact (it only clears
+     * {@code teamsByPlayer}). If a future version empties the member set before
+     * returning, this hook silently stops rebuilding receiver-side connections.
+     * The list is copied so {@code onTeamChange} never iterates a live view.
      */
     @Inject(method = "removePlayerTeam(Lnet/minecraft/world/scores/PlayerTeam;)V",
             at = @At("RETURN"))
     private void onRemovePlayerTeam(PlayerTeam team, CallbackInfo ci) {
-        onTeamChange((Scoreboard) (Object) this, team, team.getPlayers());
+        onTeamChange((Scoreboard) (Object) this, team, new ArrayList<>(team.getPlayers()));
     }
 }

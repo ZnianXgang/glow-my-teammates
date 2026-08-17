@@ -402,10 +402,13 @@ public final class GlowCommand {
      * a no-glow entity-data packet. Required because a stationary mob never
      * produces dirty entity data, so the stale 0x40 bit would otherwise stay
      * on clients forever. Vanilla-glowing entities are skipped (the mod never
-     * touched those); packets go only to players whose chunk-tracking view
-     * covers the entity's chunk. One-shot at command frequency — the chunk →
-     * tracking-players map keeps per-entity work at a single hash lookup
-     * (AGENTS.md §10.3).
+     * touched those). Packets go only to players whose chunk-tracking view
+     * covers the entity's chunk — a <em>superset</em> of the exact tracking
+     * set (it ignores {@code entityTrackingRange}), so a few non-tracking
+     * players may receive a redundant clear packet; over-sending is safe
+     * (under-sending would leave stale glow). One-shot at command frequency —
+     * the chunk → tracking-players map keeps per-entity work at a single hash
+     * lookup (AGENTS.md §10.3).
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
