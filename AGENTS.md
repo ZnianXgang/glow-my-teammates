@@ -78,7 +78,7 @@ The waypoint rebuild needs the running server; `GlowConfigManager` holds a `Mine
 | `syncEpoch` | runtime `long` | Viewer-side cache invalidation (`cachedSyncEpoch`) | `bumpSyncEpoch()` from team changes in glow teams |
 | `configVersion` | disk `int[]` `[major, minor]` | Disk schema version, *not* a cache counter | Migration only |
 
-`version`/`syncEpoch` reset every server start — fine, caches are per-`ServerEntity` instance and re-seeded by `onAddPairing`.
+`version`/`syncEpoch` are never reset — they only grow across server starts. That's fine: the caches are per-`ServerEntity` instance (re-created as `0` each restart) and re-seeded by `onAddPairing`, so the first comparison always sees a mismatch and forces a full lookup.
 
 ### 4.2 Idempotency rule
 

@@ -89,9 +89,10 @@ public abstract class ServerEntityMixin {
         if (!(entity instanceof Player) && !config.isNonPlayerGlow()) {
             // Non-player, glow off — never customizable. Sync the caches and,
             // if this entity glowed before the switch was turned off
-            // (cachedTeamName set), force one no-glow packet so stale client
-            // glow is cleared even when clearNonPlayerGlow wasn't run (e.g.
-            // another mod disabled the switch directly).
+            // (cachedTeamName set), force one current-flags packet so stale
+            // client glow is cleared even when clearNonPlayerGlow wasn't run
+            // (e.g. another mod disabled the switch directly). Reading the
+            // entity's live flags also keeps a vanilla glow (spectral/effect).
             boolean hadCachedTeam = cachedTeamName != null;
             cachedTeamName = null;
             cachedConfigVersion = config.getVersion();
