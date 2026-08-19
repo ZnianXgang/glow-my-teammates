@@ -50,7 +50,7 @@ public final class WaypointSync {
      */
     public static void rebuildAll(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
-            if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
+            if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
                 continue;
             }
             for (ServerPlayer player : level.players()) {
@@ -74,7 +74,7 @@ public final class WaypointSync {
             return;
         }
         ServerLevel level = player.level();
-        if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
+        if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
             return;
         }
         pendingRebuilds.add(level);
@@ -103,7 +103,7 @@ public final class WaypointSync {
             if (!isPartOf(server, level)) {
                 continue;
             }
-            if (!level.getGameRules().get(GameRules.LOCATOR_BAR).booleanValue()) {
+            if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
                 continue; // The rule was turned off after the mark — nothing to rebuild.
             }
             for (ServerPlayer other : level.players()) {

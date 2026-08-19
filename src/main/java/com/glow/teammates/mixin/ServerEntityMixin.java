@@ -27,6 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Predicate;
 
 @Mixin(ServerEntity.class)
@@ -119,7 +120,6 @@ public abstract class ServerEntityMixin {
         // change can make it glow, so the whole broadcast is skippable. Sync
         // the caches too, so later bumps don't re-run the lookups forever.
         if (currentTeamName == null && cachedTeamName == null) {
-            cachedTeamName = null;
             cachedConfigVersion = currentConfigVersion;
             cachedSyncEpoch = currentSyncEpoch;
             return null;
@@ -127,9 +127,7 @@ public abstract class ServerEntityMixin {
 
         // Detect transitions in both directions: joined a glowing team (force
         // glow packet) or left / mod disabled (force cleanup packet).
-        boolean teamChanged = (currentTeamName == null)
-                ? (cachedTeamName != null)
-                : !currentTeamName.equals(cachedTeamName);
+        boolean teamChanged = !Objects.equals(currentTeamName, cachedTeamName);
         boolean configChanged = currentConfigVersion != cachedConfigVersion;
         boolean epochChanged = currentSyncEpoch != cachedSyncEpoch;
 
@@ -465,7 +463,7 @@ public abstract class ServerEntityMixin {
                     EntityAccessor.getSharedFlagsId());
             if (shouldGlow) {
                 if (cachedGlowPacket == null || cachedGlowFlags == null
-                        || cachedGlowFlags.byteValue() != current) {
+                        || cachedGlowFlags != current) {
                     cachedGlowFlags = current;
                     cachedGlowPacket = new ClientboundSetEntityDataPacket(packet.id(),
                             List.of(new SynchedEntityData.DataValue<>(

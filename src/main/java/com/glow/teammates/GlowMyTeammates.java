@@ -20,9 +20,8 @@ public class GlowMyTeammates implements ModInitializer {
 		LOGGER.info("Glow My Teammates initializing...");
 
 		// Load config when the server starts
-		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			GlowConfigManager.getInstance().loadFromWorld(server);
-		});
+		ServerLifecycleEvents.SERVER_STARTED.register(
+				server -> GlowConfigManager.getInstance().loadFromWorld(server));
 
 		// Drop the server reference and the waypoint pending set when the
 		// server stops — an integrated server can restart in the same JVM.
@@ -34,14 +33,11 @@ public class GlowMyTeammates implements ModInitializer {
 		// Drain deferred locator-bar rebuilds at the tick boundary — the
 		// rebuild must see the final team state, and the server reference lets
 		// the drain skip dimensions left by a crashed previous server.
-		ServerTickEvents.END_SERVER_TICK.register(server -> {
-			WaypointSync.flushPendingRebuilds(server);
-		});
+		ServerTickEvents.END_SERVER_TICK.register(WaypointSync::flushPendingRebuilds);
 
 		// Register commands
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-			GlowCommand.register(dispatcher);
-		});
+		CommandRegistrationCallback.EVENT.register(
+				(dispatcher, registryAccess, environment) -> GlowCommand.register(dispatcher));
 
 		LOGGER.info("Glow My Teammates initialized");
 	}
