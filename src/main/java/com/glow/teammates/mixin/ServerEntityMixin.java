@@ -144,6 +144,7 @@ public abstract class ServerEntityMixin {
         return null;
     }
 
+    @Unique
     private List<SynchedEntityData.DataValue<?>> buildFlagsPacket() {
         EntityDataAccessor<Byte> accessor = EntityAccessor.getSharedFlagsId();
         byte flags = entity.getEntityData().get(accessor);
@@ -411,6 +412,7 @@ public abstract class ServerEntityMixin {
      * delivery.
      */
     @SuppressWarnings({"rawtypes", "unchecked"})
+    @Unique
     private ClientboundSetEntityDataPacket modifyGlowFlag(
             ClientboundSetEntityDataPacket packet, boolean shouldGlow,
             boolean forceIncludeFlags) {

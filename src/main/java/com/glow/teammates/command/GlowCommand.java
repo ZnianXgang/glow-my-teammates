@@ -103,12 +103,10 @@ public final class GlowCommand {
                         .suggests((ctx, builder) -> {
                             // Suggest all existing teams from scoreboard
                             var server = ctx.getSource().getServer();
-                            if (server != null) {
-                                var enabled = GlowConfigManager.getInstance().getEnabledTeams();
-                                for (var team : server.getScoreboard().getPlayerTeams()) {
-                                    if (!enabled.contains(team.getName())) {
-                                        builder.suggest(team.getName());
-                                    }
+                            var enabled = GlowConfigManager.getInstance().getEnabledTeams();
+                            for (var team : server.getScoreboard().getPlayerTeams()) {
+                                if (!enabled.contains(team.getName())) {
+                                    builder.suggest(team.getName());
                                 }
                             }
                             return builder.buildFuture();

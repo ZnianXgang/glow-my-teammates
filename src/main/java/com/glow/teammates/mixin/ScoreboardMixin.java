@@ -18,7 +18,7 @@ import java.util.Collections;
 
 /**
  * Hooks into Scoreboard team membership changes so that
- * {@link ServerEntityMixin#smartForcePacket} can detect when a
+ * {@code smartForcePacket} can detect when a
  * <em>viewer</em> (not the entity itself) changed teams and force a
  * glow-state resync. When {@code locator_bar_teammates_only} is on, the same
  * change rebuilds the affected players' locator-bar connections — see
