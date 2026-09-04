@@ -7,6 +7,7 @@ import com.glow.teammates.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -29,6 +30,7 @@ import net.minecraft.world.scores.PlayerTeam;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -101,14 +103,18 @@ public final class GlowCommand {
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
-                            // Suggest all existing teams from scoreboard
+                            // Suggest existing, not-yet-enabled teams narrowed by
+                            // the typed prefix, exactly like vanilla's own team
+                            // argument narrows /team add|remove as you type.
                             var server = ctx.getSource().getServer();
                             var enabled = GlowConfigManager.getInstance().getEnabledTeams();
+                            List<String> candidates = new ArrayList<>();
                             for (var team : server.getScoreboard().getPlayerTeams()) {
                                 if (!enabled.contains(team.getName())) {
-                                    builder.suggest(team.getName());
+                                    candidates.add(team.getName());
                                 }
                             }
+                            suggestMatchingTypedPrefix(builder, candidates);
                             return builder.buildFuture();
                         })
                         .executes(ctx -> {
@@ -124,10 +130,10 @@ public final class GlowCommand {
                         PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
-                            // Suggest only enabled teams
-                            for (String t : GlowConfigManager.getInstance().getEnabledTeams()) {
-                                builder.suggest(t);
-                            }
+                            // Suggest only enabled teams narrowed by the typed
+                            // prefix (same behaviour as the add subcommand).
+                            suggestMatchingTypedPrefix(builder,
+                                    GlowConfigManager.getInstance().getEnabledTeams());
                             return builder.buildFuture();
                         })
                         .executes(ctx -> {
@@ -192,6 +198,23 @@ public final class GlowCommand {
         });
 
         dispatcher.register(root);
+    }
+
+    /**
+     * Suggest the {@code candidates} whose name starts with whatever the player
+     * has typed so far. Vanilla narrows its own argument suggestions by that
+     * prefix (case-insensitively), so {@code /teamglow team add/remove} must do
+     * the same or its completion list would stop following the player's input
+     * while vanilla's own team argument keeps narrowing.
+     */
+    private static void suggestMatchingTypedPrefix(SuggestionsBuilder builder,
+                                                   Iterable<String> candidates) {
+        String typed = builder.getRemainingLowerCase();
+        for (String candidate : candidates) {
+            if (candidate.toLowerCase(Locale.ROOT).startsWith(typed)) {
+                builder.suggest(candidate);
+            }
+        }
     }
 
     private static int setEnabled(CommandSourceStack source, boolean enabled) {
