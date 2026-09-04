@@ -3,7 +3,13 @@ plugins {
 	id 'maven-publish'
 }
 
-version = "${property('mod_version')}+${sc.current.version}"
+// A bare build is a dev build: the version gets a "-dev" marker so the jar
+// (and the version field expanded into fabric.mod.json) is never mistaken for
+// a release artifact. Pass -Prelease for a clean release version:
+//   ./gradlew build            -> 1.1.2-dev+26.2
+//   ./gradlew build -Prelease  -> 1.1.2+26.2
+def releaseSuffix = project.hasProperty('release') ? '' : '-dev'
+version = "${property('mod_version')}${releaseSuffix}+${sc.current.version}"
 group = property('maven_group')
 base.archivesName = rootProject.name
 

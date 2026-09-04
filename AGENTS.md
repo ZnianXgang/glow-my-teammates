@@ -139,6 +139,7 @@ The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)`
 - Per-version deps live in `versions/<mc>/gradle.properties`; server-translations-api differs per MC and is bundled with `implementation include(...)`.
 - Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates.
 - `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
+- A bare `./gradlew build` is a **dev build** — the version gets a `-dev` suffix (`1.1.2-dev+26.2`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.1.2+26.2`). Only distribute `-Prelease` jars.
 - **Mixin anchors to re-verify on every MC upgrade** (`defaultRequire: 1` fails loudly if any breaks):
   - `ServerEntityMixin#smartForcePacket` — `@ModifyVariable` on `sendDirtyEntityData`'s `packDirty()` result (`INVOKE_ASSIGN`, `ordinal = 0`)
   - `ServerEntityMixin#redirectSendData` — `@Redirect` on `ServerEntity$Synchronizer.sendToTrackingPlayersAndSelf(Packet)`, `ordinal = 0`
@@ -163,7 +164,7 @@ The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)`
 
 - Work directly on `main`; conventional commits (`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`), single concern per commit.
 - Before committing: `./gradlew "Reset active project"`, then verify `./gradlew build` (both versions) passes.
-- Version bumps live in root `gradle.properties` (`mod_version`); jar names and `fabric.mod.json` follow automatically. Keep README's config example and jar-name lines in sync with the version.
+- Version bumps live in root `gradle.properties` (`mod_version`); jar names and `fabric.mod.json` follow automatically. A bare `./gradlew build` adds a `-dev` suffix — release builds pass `-Prelease` (§7). Keep README's config example and jar-name lines in sync with the version.
 
 ## 10. Deliberate non-optimizations
 

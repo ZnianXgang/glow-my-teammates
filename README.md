@@ -90,10 +90,13 @@ Stored per world at `<world>/glow-my-teammates.json` (schema `[1, 1]`):
 Uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported versions from one codebase.
 
 ```bash
+# Dev build (default) — jar version carries a "-dev" suffix
 ./gradlew build
+# Release build — clean version, no suffix
+./gradlew build -Prelease
 ```
 
-Output: `versions/26.1/build/libs/glow-my-teammates-1.1.2+26.1.jar` and `versions/26.2/build/libs/glow-my-teammates-1.1.2+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
+Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.1.2-dev+26.2.jar` or release `glow-my-teammates-1.1.2+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
 
 ## Built with
 
