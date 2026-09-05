@@ -429,7 +429,7 @@ public final class GlowCommand {
      * players may receive a redundant clear packet; over-sending is safe
      * (under-sending would leave stale glow). One-shot at command frequency —
      * the chunk → tracking-players map keeps per-entity work at a single hash
-     * lookup (AGENTS.md §10.3).
+     * lookup (DEVELOPMENT.md §9.3).
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {

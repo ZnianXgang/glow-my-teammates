@@ -223,7 +223,7 @@ public abstract class ServerEntityMixin {
      * are looked up by scoreboard name (their UUID string). Runs once per dirty
      * packet plus once per viewer; the O(1) probes are accepted as-is — caching
      * the team would need invalidation the global {@code syncEpoch} cannot
-     * distinguish (AGENTS.md §10.2).
+     * distinguish (DEVELOPMENT.md §9.2).
      */
     @Unique
     private static PlayerTeam getGlowingTeam(Entity entity) {
@@ -328,8 +328,8 @@ public abstract class ServerEntityMixin {
         if (vanillaGlow) {
             // Settle the counters when stale: the forwarded packet never does,
             // so smartForcePacket would otherwise force a redundant broadcast
-            // on every quiet tick — the one-shot-per-bump budget in AGENTS.md
-            // §10.1 silently becomes unbounded. Safe: while vanilla glow is
+            // on every quiet tick — the one-shot-per-bump budget in
+            // DEVELOPMENT.md §9.1 silently becomes unbounded. Safe: while vanilla glow is
             // active the mod's bit is invisible, and the next flags change
             // clears any stale bit via the split path below.
             if (cachedSyncEpoch != config.getSyncEpoch()
@@ -344,7 +344,7 @@ public abstract class ServerEntityMixin {
         }
 
         // One lookup per dirty send drives both the stale-glow cleanup and the
-        // per-viewer predicate (not cached on the ServerEntity — AGENTS.md §10.2).
+        // per-viewer predicate (not cached on the ServerEntity — DEVELOPMENT.md §9.2).
         PlayerTeam entityTeamObj = getGlowingTeam(entity);
 
         // Previously customized but no longer in a glowing team: drop the stale
@@ -370,7 +370,7 @@ public abstract class ServerEntityMixin {
         // it. All three caches settle together: the stale counters may stem
         // from the entity's OWN team change, and a counter-only settle would
         // leave cachedTeamName stale for smartForcePacket's fast bail to
-        // trust (AGENTS.md §10.1). entityTeamObj is non-null here, so syncing
+        // trust (DEVELOPMENT.md §9.1). entityTeamObj is non-null here, so syncing
         // to it is always safe.
         boolean viewerSideChanged = cachedSyncEpoch != config.getSyncEpoch()
                 || cachedConfigVersion != config.getVersion();

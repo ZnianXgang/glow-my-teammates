@@ -46,7 +46,7 @@ public class GlowConfigManager {
      * without {@code Entity.getServer()} (removed in 26.1+). May be
      * {@code null} on the client or before the first world load. Volatile:
      * {@code ScoreboardMixin} reads it from the client thread in
-     * singleplayer/LAN (AGENTS.md §8.7).
+     * singleplayer/LAN (DEVELOPMENT.md §8.6).
      */
     private volatile MinecraftServer server;
 
@@ -331,7 +331,7 @@ public class GlowConfigManager {
     /**
      * Call when a player joins or leaves any team, so the mixin can force a
      * glow-state resync for all viewers of glowing entities. Intentionally
-     * global — see AGENTS.md §10.1 before "optimizing" to per-team granularity.
+     * global — see DEVELOPMENT.md §9.1 before "optimizing" to per-team granularity.
      */
     public void bumpSyncEpoch() {
         this.syncEpoch++;
@@ -348,7 +348,7 @@ public class GlowConfigManager {
     /**
      * Deliberately <em>not</em> idempotent (unlike the other setters): the
      * caller must guard against already-enabled teams before calling, which
-     * {@code GlowCommand#addTeam} does (AGENTS.md §4.2).
+     * {@code GlowCommand#addTeam} does (DEVELOPMENT.md §4.2).
      */
     public void addTeam(String teamName) {
         enabledTeams.add(teamName);
