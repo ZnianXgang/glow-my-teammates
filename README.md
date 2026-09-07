@@ -10,12 +10,12 @@ Members of an enabled team see their teammates outlined in a bright glow, from a
 
 ## ✨ Features
 
-- **Per-viewer glow** — every player sees their own teammates glowing; nobody else does. Same glowing flag the vanilla `/effect glowing` uses.
+- **Per-viewer glow** — every player sees their own teammates glowing; nobody else does.
 - **Opt-in per team** — one command enables glow for a team; nothing about vanilla behavior changes until you enable something.
 - **Mobs can glow too** — with `non_player_glow`, mobs in a glow-enabled team glow for their teammates (off by default).
 - **Locator-bar filtering** — optionally, viewers in glow-enabled teams see *only their teammates* on the locator bar.
 - **Fine-grained permissions** — every command gated by a permission node, compatible with LuckPerms.
-- **Vanilla-friendly** — spectral arrows, potions, `/effect glowing` and `setGlowingTag` are never touched. Removing a team via `/team remove` cleans up instantly — no stale glow.
+- **Vanilla-friendly** — the glowing effect and an entity's `Glowing` tag are never touched. Removing a team via `/team remove` cleans up instantly — no stale glow.
 
 ## 📦 Requirements
 
@@ -78,7 +78,7 @@ Stored per world at `<world>/glow-my-teammates.json` (schema `[1, 1]`):
 
 ## 🤔 Behaviour notes
 
-- **Vanilla glowing is untouched** — spectral arrows, potions, `/effect glowing` and `setGlowingTag` still work; the mod only adds or clears its own bit on top.
+- **Vanilla glowing is untouched** — the glowing effect and an entity's `Glowing` tag still work; the mod only adds or clears its own bit on top.
 - **`/team remove <team>` cleans up immediately** — no stale glow until re-login.
 - **No self-glow in third person** — deliberate; players always receive the no-glow variant for themselves.
 - **Network footprint** — each data update sends one extra tiny packet per teammate. Negligible for small groups; on large servers keep glow enabled only for the teams that need it.

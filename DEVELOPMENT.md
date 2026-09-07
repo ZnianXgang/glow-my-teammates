@@ -46,7 +46,7 @@ ServerEntity.sendDirtyEntityData()
 | `redirectSendData` (`@Redirect` on `sendToTrackingPlayersAndSelf`, ordinal 0) | Every dirty-data broadcast | Build no-glow + glow copies, broadcast then overlay (§3.1) |
 
 - Self is excluded from its own tracking set (`ChunkMap.TrackedEntity.updatePlayer`), so `sendToTrackingPlayersAndSelf` already covers self. **Deliberate**: a glowing player does NOT see their own glow in third-person view.
-- **Vanilla glow is never touched**: spectral arrows, potions, `/effect glowing`, `setGlowingTag` all flow through unchanged. The mod only adds/clears its own bit on top of the server's current flags — `modifyGlowFlag` always rebuilds the byte from server flags, never from a bare 0x40, so the other shared-flag bits are never wiped.
+- **Vanilla glow is never touched**: the glowing effect and an entity's `Glowing` tag flow through unchanged. The mod only adds/clears its own bit on top of the server's current flags — `modifyGlowFlag` always rebuilds the byte from server flags, never from a bare 0x40, so the other shared-flag bits are never wiped.
 
 ### 3.3 Viewer-side team changes (`ScoreboardMixin`)
 
