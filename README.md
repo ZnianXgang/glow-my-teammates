@@ -21,7 +21,7 @@ Members of an enabled team see their teammates outlined in a bright glow, from a
 
 | | Minecraft 26.1 | Minecraft 26.2 |
 |---|---|---|
-| Fabric Loader | >= 0.18.4 | >= 0.19.3 |
+| Fabric Loader | >= 0.19.3 | >= 0.19.3 |
 | Fabric API | >= 0.155.3+26.1.2 | >= 0.157.0+26.2 |
 
 Install like any Fabric mod: drop the jar into the server's `mods/` folder. **Server-side only** — players with vanilla clients can connect without installing anything. Command feedback is translated server-side (English & Simplified Chinese).
