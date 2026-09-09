@@ -40,7 +40,9 @@ dependencies {
 processResources {
 	def props = [
 		version: project.version,
-		minecraft_version: sc.current.version
+		minecraft_version: sc.current.version,
+		loader_version: project.property('loader_version'),
+		fabric_api_version: project.property('fabric_api_version')
 	]
 	inputs.properties props
 

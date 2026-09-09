@@ -112,7 +112,7 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 **26.1+ background**: Minecraft 26.1 (the first 2026-renamed release) removed obfuscation and raised the minimum Java to 25. With obfuscation gone, **Yarn is unavailable from 26.1 on** — 26.1+ mods use **Mojmap** (official names ship in the jar, so `build.gradle` has no `mappings` line).
 
 - **VCS version is 26.2** — the canonical source in `src/`. Always commit from it.
-- Per-version deps live in `versions/<mc>/gradle.properties`; server-translations-api differs per MC and is bundled with `implementation include(...)`.
+- Per-version deps live in `versions/<mc>/gradle.properties`. `fabricloader`, `fabric-api` and `minecraft` are expanded into `fabric.mod.json` by `processResources` — inside that closure a bare `property(...)` resolves against the **task**, so per-version values must be read via `project.property(...)`. Server-translations-api differs per MC and is bundled with `implementation include(...)`.
 - Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates.
 - `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
 - A bare `./gradlew build` is a **dev build** — the version gets a `-dev` suffix (`1.1.2-dev+26.2`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.1.2+26.2`). Only distribute `-Prelease` jars.
