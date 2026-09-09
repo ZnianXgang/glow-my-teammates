@@ -112,7 +112,7 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 - The bare `/teamglow` shortcut checks its status permission **inside the executor** — a root `requires()` would AND it into every subcommand (Brigadier semantics).
 - Feature switches are defined once in the `FeatureSwitch` enum (id, default, reader, writer, `SwitchEffect`); the command tree, `config list` and `config reset` all derive from it. Adding a switch = one enum constant, no command-tree or lang changes.
 - Feature-switch messages use three generic keys (`glow.teammates.config.entry` / `.set` / `.reset`) plus `.unknown` for a bad name — new switches never need a lang-file entry.
-- Switch defaults live in `GlowConfigManager.DEFAULT_*`, the single source of truth for the field initialisers, the legacy/no-file load paths and `resetToDefaultsAndPersist`.
+- Switch defaults live in `GlowConfigManager.DEFAULT_*`, the single source of truth for the field initializers, the legacy/no-file load paths and `resetToDefaultsAndPersist`.
 - Every mutating command validates the `save()` result and rolls the in-memory state back on failure.
 - Team suggestions **must** narrow by the typed prefix (`suggestMatchingTypedPrefix`, case-insensitive `startsWith` on `builder.getRemainingLowerCase()`) — vanilla's own team argument filters as you type, and Brigadier does not filter for you.
 

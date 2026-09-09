@@ -188,7 +188,7 @@ public final class GlowCommand {
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest only enabled teams narrowed by the typed
-                            // prefix (same behaviour as the add subcommand).
+                            // prefix (same behavior as the add subcommand).
                             suggestMatchingTypedPrefix(builder,
                                     GlowConfigManager.getInstance().getEnabledTeams());
                             return builder.buildFuture();

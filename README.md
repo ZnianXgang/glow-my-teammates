@@ -80,7 +80,7 @@ Stored per world at `<world>/glow-my-teammates.json` (schema `[1, 1]`):
 - Legacy configs are migrated automatically on first load — never edit the file by hand.
 - Command edits are written atomically (temp file + atomic move); a failed write is reported in chat instead of silently losing the change.
 
-## 🤔 Behaviour notes
+## 🤔 Behavior notes
 
 - **Vanilla glowing is untouched** — the glowing effect and an entity's `Glowing` tag still work; the mod only adds or clears its own bit on top.
 - **`/team remove <team>` cleans up immediately** — no stale glow until re-login.

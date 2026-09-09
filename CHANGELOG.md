@@ -44,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Teammates stayed visible after leaving a glowing team when the glowing player was constantly generating entity updates (drowning, freezing, burning, mob-farm entities) — the outline now clears immediately on the team change.
-- Item frames, boats and other non-living entities with vanilla glow are handled correctly when they first come into view, matching the behaviour of players and mobs.
+- Item frames, boats and other non-living entities with vanilla glow are handled correctly when they first come into view, matching the behavior of players and mobs.
 - Locator bar (`locator_bar_teammates_only`): a player joining or leaving a glowing team now sees their own bar update right away, instead of keeping non-teammates until a connection happened to refresh on its own — which might never happen for an AFK player.
 - Players switching between two glow-enabled teams no longer see everyone on their locator bar.
 - The config file path in the server log no longer shows a redundant separator.
@@ -58,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Locator bar behaviour changed**: viewers in a glow-enabled team now see only their own teammates (team isolation), instead of merely hiding other glow-enabled teams.
+- **Locator bar behavior changed**: viewers in a glow-enabled team now see only their own teammates (team isolation), instead of merely hiding other glow-enabled teams.
 - **Switch renamed**: `locator_bar_hide_other_glowing_teams` → `locator_bar_teammates_only` (the old command no longer works).
 - Existing configs migrate automatically on first load — settings are preserved.
 
