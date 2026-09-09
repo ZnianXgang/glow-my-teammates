@@ -100,6 +100,10 @@ Uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported ver
 
 Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.2.0-dev+26.2.jar` or release `glow-my-teammates-1.2.0+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
 
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and breaking changes.
+
 ## 📜 License
 
 CC0-1.0 — do whatever you want with it.
