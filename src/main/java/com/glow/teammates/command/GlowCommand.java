@@ -7,6 +7,8 @@ import com.glow.teammates.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
 import net.minecraft.ChatFormatting;
@@ -33,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -42,15 +45,31 @@ public final class GlowCommand {
     private GlowCommand() {}
 
     /**
-     * Permission gate for the bare {@code /teamglow} shortcut, checked inside
-     * the executor (not on the root node) so subcommands don't inherit it —
-     * Brigadier ANDs a parent's {@code requires()} into every child.
+     * Permission gates. A group gate sits on the {@code team} / {@code config}
+     * literal, not on its children — Brigadier ANDs a parent's
+     * {@code requires()} into every child, so per-subcommand gates would be
+     * redundant. A group's read commands therefore inherit its write
+     * permission ({@code team list} / {@code config list} / {@code config get}
+     * are OP 2); {@code status} is the only public entry point.
+     *
+     * <p>The bare {@code /teamglow} shortcut checks {@link #STATUS_REQUIREMENT}
+     * inside its executor rather than on the root node, because a root gate
+     * would be ANDed into every subcommand too.
      */
     private static final Predicate<CommandSourceStack> STATUS_REQUIREMENT =
-            PermissionPredicates.require(
-                    Identifier.fromNamespaceAndPath(
-                            "glow-my-teammates", "command.status"),
-                    PermissionLevel.ALL);
+            permission("command.status", PermissionLevel.ALL);
+    private static final Predicate<CommandSourceStack> TOGGLE_REQUIREMENT =
+            permission("command.toggle", PermissionLevel.GAMEMASTERS);
+    private static final Predicate<CommandSourceStack> TEAM_REQUIREMENT =
+            permission("command.team", PermissionLevel.GAMEMASTERS);
+    private static final Predicate<CommandSourceStack> CONFIG_REQUIREMENT =
+            permission("command.config", PermissionLevel.GAMEMASTERS);
+
+    private static Predicate<CommandSourceStack> permission(String path,
+                                                            PermissionLevel fallback) {
+        return PermissionPredicates.require(
+                Identifier.fromNamespaceAndPath("glow-my-teammates", path), fallback);
+    }
 
     /**
      * Side effects a config-switch change may trigger beyond persisting the
@@ -65,42 +84,84 @@ public final class GlowCommand {
         CLEAR_NON_PLAYER_GLOW
     }
 
+    /**
+     * One feature switch: its command name, reset value, accessors and side
+     * effect. The command tree, {@code config list} and {@code config reset}
+     * all derive from this table — adding a switch is one constant here and
+     * nothing else (the messages are generic).
+     */
+    private enum FeatureSwitch {
+        LOCATOR_BAR_TEAMMATES_ONLY(
+                "locator_bar_teammates_only",
+                GlowConfigManager.DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY,
+                () -> GlowConfigManager.getInstance().isLocatorBarTeammatesOnly(),
+                v -> GlowConfigManager.getInstance().setLocatorBarTeammatesOnly(v),
+                SwitchEffect.REBUILD_WAYPOINTS),
+        NON_PLAYER_GLOW(
+                "non_player_glow",
+                GlowConfigManager.DEFAULT_NON_PLAYER_GLOW,
+                () -> GlowConfigManager.getInstance().isNonPlayerGlow(),
+                v -> GlowConfigManager.getInstance().setNonPlayerGlow(v),
+                SwitchEffect.CLEAR_NON_PLAYER_GLOW);
+
+        private final String id;
+        private final boolean defaultValue;
+        private final BooleanSupplier reader;
+        private final Consumer<Boolean> writer;
+        private final SwitchEffect effect;
+
+        FeatureSwitch(String id, boolean defaultValue, BooleanSupplier reader,
+                      Consumer<Boolean> writer, SwitchEffect effect) {
+            this.id = id;
+            this.defaultValue = defaultValue;
+            this.reader = reader;
+            this.writer = writer;
+            this.effect = effect;
+        }
+
+        boolean read() {
+            return reader.getAsBoolean();
+        }
+
+        void write(boolean value) {
+            writer.accept(value);
+        }
+
+        /**
+         * Exact-match lookup, or {@code null} for an unknown name (the command
+         * turns that into a failure message). Iterating {@code values()} beats
+         * a static index: no enum-vs-static-field initialization-order trap,
+         * and the table is tiny.
+         */
+        static FeatureSwitch byId(String id) {
+            for (FeatureSwitch sw : values()) {
+                if (sw.id.equals(id)) {
+                    return sw;
+                }
+            }
+            return null;
+        }
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         var root = Commands.literal("teamglow");
 
-        // /teamglow on
-        root.then(Commands.literal("on")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.on"),
-                        PermissionLevel.GAMEMASTERS))
-                .executes(ctx -> setEnabled(ctx.getSource(), true)));
-
-        // /teamglow off
-        root.then(Commands.literal("off")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.off"),
-                        PermissionLevel.GAMEMASTERS))
-                .executes(ctx -> setEnabled(ctx.getSource(), false)));
+        // /teamglow toggle
+        root.then(Commands.literal("toggle")
+                .requires(TOGGLE_REQUIREMENT)
+                .executes(ctx -> setEnabled(ctx.getSource(),
+                        !GlowConfigManager.getInstance().isEnabled())));
 
         // /teamglow status
         root.then(Commands.literal("status")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.status"),
-                        PermissionLevel.ALL))
+                .requires(STATUS_REQUIREMENT)
                 .executes(ctx -> showStatus(ctx.getSource())));
 
-        // /teamglow team ...
-        var teamNode = Commands.literal("team");
+        // /teamglow team ... — every subcommand inherits TEAM_REQUIREMENT
+        var teamNode = Commands.literal("team").requires(TEAM_REQUIREMENT);
 
         // /teamglow team add <team>
         teamNode.then(Commands.literal("add")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team.add"),
-                        PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest existing, not-yet-enabled teams narrowed by
@@ -124,10 +185,6 @@ public final class GlowCommand {
 
         // /teamglow team remove <team>
         teamNode.then(Commands.literal("remove")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team.remove"),
-                        PermissionLevel.GAMEMASTERS))
                 .then(Commands.argument("team", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
                             // Suggest only enabled teams narrowed by the typed
@@ -143,54 +200,50 @@ public final class GlowCommand {
 
         // /teamglow team list
         teamNode.then(Commands.literal("list")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.team.list"),
-                        PermissionLevel.ALL))
                 .executes(ctx -> listTeams(ctx.getSource())));
 
         root.then(teamNode);
 
-        // /teamglow config ... (no argument → show current feature switches)
-        var configNode = Commands.literal("config")
-                .requires(PermissionPredicates.require(
-                        Identifier.fromNamespaceAndPath(
-                                "glow-my-teammates", "command.config"),
-                        PermissionLevel.GAMEMASTERS))
-                .executes(ctx -> listConfig(ctx.getSource()));
+        // /teamglow config ... — every subcommand inherits CONFIG_REQUIREMENT
+        var configNode = Commands.literal("config").requires(CONFIG_REQUIREMENT);
 
-        // /teamglow config locator_bar_teammates_only <true|false>
-        configNode.then(Commands.literal("locator_bar_teammates_only")
-                .then(Commands.argument("value", BoolArgumentType.bool())
-                        .executes(ctx -> setConfigSwitch(
-                                ctx.getSource(),
-                                "locator_bar_teammates_only",
-                                BoolArgumentType.getBool(ctx, "value"),
-                                () -> GlowConfigManager.getInstance().isLocatorBarTeammatesOnly(),
-                                GlowConfigManager.getInstance()::setLocatorBarTeammatesOnly,
-                                SwitchEffect.REBUILD_WAYPOINTS))));
+        // /teamglow config list
+        configNode.then(Commands.literal("list")
+                .executes(ctx -> listConfig(ctx.getSource())));
 
-        // /teamglow config non_player_glow <true|false>
-        configNode.then(Commands.literal("non_player_glow")
-                .then(Commands.argument("value", BoolArgumentType.bool())
-                        .executes(ctx -> setConfigSwitch(
-                                ctx.getSource(),
-                                "non_player_glow",
-                                BoolArgumentType.getBool(ctx, "value"),
-                                () -> GlowConfigManager.getInstance().isNonPlayerGlow(),
-                                GlowConfigManager.getInstance()::setNonPlayerGlow,
-                                SwitchEffect.CLEAR_NON_PLAYER_GLOW))));
+        // /teamglow config get <switch>
+        configNode.then(Commands.literal("get")
+                .then(Commands.argument("switch", StringArgumentType.word())
+                        .suggests(GlowCommand::suggestSwitches)
+                        .executes(ctx -> getConfig(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "switch")))));
+
+        // /teamglow config set <switch> <true|false>
+        configNode.then(Commands.literal("set")
+                .then(Commands.argument("switch", StringArgumentType.word())
+                        .suggests(GlowCommand::suggestSwitches)
+                        .then(Commands.argument("value", BoolArgumentType.bool())
+                                .executes(ctx -> setConfig(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "switch"),
+                                        BoolArgumentType.getBool(ctx, "value"))))));
+
+        // /teamglow config reset <switch>
+        configNode.then(Commands.literal("reset")
+                .then(Commands.argument("switch", StringArgumentType.word())
+                        .suggests(GlowCommand::suggestSwitches)
+                        .executes(ctx -> resetConfig(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "switch")))));
 
         root.then(configNode);
 
         // Default (no argument) → show status. The permission check lives in
         // the executor (not on the root node) because Brigadier ANDs a parent
         // node's requires() into every child — a status restriction on the
-        // root would wrongly gate the on/off/team.config subcommands too.
+        // root would wrongly gate the toggle/team/config subcommands too.
         root.executes(ctx -> {
             if (!STATUS_REQUIREMENT.test(ctx.getSource())) {
                 ctx.getSource().sendFailure(
-                        Component.translatable("glow.teammates.no_permission")
+                        Component.translatable("glow.teammates.permission.denied")
                                 .withStyle(ChatFormatting.RED));
                 return 0;
             }
@@ -226,7 +279,7 @@ public final class GlowCommand {
         if (!config.save()) {
             config.setEnabled(oldValue); // Roll back the in-memory state.
             source.sendFailure(
-                    Component.translatable("glow.teammates.save_failed")
+                    Component.translatable("glow.teammates.save.failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -239,25 +292,29 @@ public final class GlowCommand {
 
         source.sendSuccess(
                 () -> Component.translatable(
-                        enabled ? "glow.teammates.enabled" : "glow.teammates.disabled")
+                        enabled ? "glow.teammates.toggle.enabled" : "glow.teammates.toggle.disabled")
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
     }
 
+    /**
+     * Reports the global on/off state and nothing else — team and switch
+     * details live behind {@code team list} / {@code config list} / {@code
+     * config get} (all OP 2), so the public {@code status} node never exposes
+     * them.
+     */
     private static int showStatus(CommandSourceStack source) {
-        GlowConfigManager config = GlowConfigManager.getInstance();
+        boolean enabled = GlowConfigManager.getInstance().isEnabled();
         Component state = Component.translatable(
-                config.isEnabled() ? "glow.teammates.status.enabled"
+                enabled ? "glow.teammates.status.enabled"
                         : "glow.teammates.status.disabled")
-                .withStyle(config.isEnabled() ? ChatFormatting.GREEN : ChatFormatting.RED);
+                .withStyle(enabled ? ChatFormatting.GREEN : ChatFormatting.RED);
 
         source.sendSuccess(
                 () -> Component.translatable("glow.teammates.status.header", state)
                         .withStyle(ChatFormatting.GOLD),
                 false);
-
-        sendTeamsList(source, config.getEnabledTeams());
         return 1;
     }
 
@@ -266,7 +323,7 @@ public final class GlowCommand {
 
         if (config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.translatable("glow.teammates.team_already", teamName)
+                    Component.translatable("glow.teammates.team.already", teamName)
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -279,7 +336,7 @@ public final class GlowCommand {
         if (!config.save()) {
             config.removeTeam(teamName); // Roll back the in-memory state.
             source.sendFailure(
-                    Component.translatable("glow.teammates.save_failed")
+                    Component.translatable("glow.teammates.save.failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -294,14 +351,14 @@ public final class GlowCommand {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
-                () -> Component.translatable("glow.teammates.team_added", teamName)
+                () -> Component.translatable("glow.teammates.team.added", teamName)
                         .withStyle(ChatFormatting.GREEN),
                 true);
         if (!exists) {
             // Pre-configuring a team that does not exist yet is allowed, but
             // the admin should know glow only applies once it is created.
             source.sendSuccess(
-                    () -> Component.translatable("glow.teammates.team_not_found", teamName)
+                    () -> Component.translatable("glow.teammates.team.not_found", teamName)
                             .withStyle(ChatFormatting.GOLD),
                     false);
         }
@@ -313,7 +370,7 @@ public final class GlowCommand {
 
         if (!config.isTeamEnabled(teamName)) {
             source.sendFailure(
-                    Component.translatable("glow.teammates.team_not_enabled", teamName)
+                    Component.translatable("glow.teammates.team.not_enabled", teamName)
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -322,7 +379,7 @@ public final class GlowCommand {
         if (!config.save()) {
             config.addTeam(teamName); // Roll back the in-memory state.
             source.sendFailure(
-                    Component.translatable("glow.teammates.save_failed")
+                    Component.translatable("glow.teammates.save.failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -335,7 +392,7 @@ public final class GlowCommand {
             rebuildWaypointConnections(source.getServer());
         }
         source.sendSuccess(
-                () -> Component.translatable("glow.teammates.team_removed", teamName)
+                () -> Component.translatable("glow.teammates.team.removed", teamName)
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
@@ -349,12 +406,12 @@ public final class GlowCommand {
     private static void sendTeamsList(CommandSourceStack source, Set<String> teams) {
         if (teams.isEmpty()) {
             source.sendSuccess(
-                    () -> Component.translatable("glow.teammates.no_teams")
+                    () -> Component.translatable("glow.teammates.team.list.empty")
                             .withStyle(ChatFormatting.GRAY),
                     false);
         } else {
             source.sendSuccess(
-                    () -> Component.translatable("glow.teammates.teams_list",
+                    () -> Component.translatable("glow.teammates.team.list",
                             Component.literal(String.join(", ", teams))
                                     .withStyle(ChatFormatting.WHITE))
                             .withStyle(ChatFormatting.YELLOW),
@@ -363,33 +420,64 @@ public final class GlowCommand {
     }
 
     private static int listConfig(CommandSourceStack source) {
-        GlowConfigManager config = GlowConfigManager.getInstance();
-        String info = "\n  locator_bar_teammates_only = "
-                + config.isLocatorBarTeammatesOnly()
-                + "\n  non_player_glow = " + config.isNonPlayerGlow();
+        StringBuilder info = new StringBuilder();
+        for (FeatureSwitch sw : FeatureSwitch.values()) {
+            info.append("\n  ").append(sw.id).append(": ").append(sw.read());
+        }
         source.sendSuccess(
                 () -> Component.translatable("glow.teammates.config.list",
-                        Component.literal(info).withStyle(ChatFormatting.WHITE))
+                        Component.literal(info.toString()).withStyle(ChatFormatting.WHITE))
                         .withStyle(ChatFormatting.YELLOW),
                 false);
         return 1;
     }
 
-    private static int setConfigSwitch(CommandSourceStack source, String feature,
-                                       boolean value, BooleanSupplier oldValueGetter,
-                                       Consumer<Boolean> setter,
-                                       SwitchEffect effect) {
-        GlowConfigManager config = GlowConfigManager.getInstance();
-        boolean oldValue = oldValueGetter.getAsBoolean();
-        boolean waypointsAffected = effect == SwitchEffect.REBUILD_WAYPOINTS
+    private static int getConfig(CommandSourceStack source, String id) {
+        FeatureSwitch sw = FeatureSwitch.byId(id);
+        if (sw == null) {
+            return unknownSwitch(source, id);
+        }
+        source.sendSuccess(
+                () -> Component.translatable("glow.teammates.config.entry",
+                        sw.id, String.valueOf(sw.read()))
+                        .withStyle(ChatFormatting.YELLOW),
+                false);
+        return 1;
+    }
+
+    private static int setConfig(CommandSourceStack source, String id, boolean value) {
+        FeatureSwitch sw = FeatureSwitch.byId(id);
+        if (sw == null) {
+            return unknownSwitch(source, id);
+        }
+        return applySwitch(source, sw, value, "glow.teammates.config.set");
+    }
+
+    private static int resetConfig(CommandSourceStack source, String id) {
+        FeatureSwitch sw = FeatureSwitch.byId(id);
+        if (sw == null) {
+            return unknownSwitch(source, id);
+        }
+        return applySwitch(source, sw, sw.defaultValue, "glow.teammates.config.reset");
+    }
+
+    /**
+     * The single exit for switch mutations: apply, persist, roll back on a
+     * failed save, then run the switch's side effect. {@code set} and {@code
+     * reset} differ only in the value and the message key.
+     */
+    private static int applySwitch(CommandSourceStack source, FeatureSwitch sw,
+                                   boolean value, String messageKey) {
+        boolean oldValue = sw.read();
+        boolean waypointsAffected = sw.effect == SwitchEffect.REBUILD_WAYPOINTS
                 && oldValue != value;
-        boolean glowCleared = effect == SwitchEffect.CLEAR_NON_PLAYER_GLOW
+        boolean glowCleared = sw.effect == SwitchEffect.CLEAR_NON_PLAYER_GLOW
                 && oldValue && !value;
-        setter.accept(value);
-        if (!config.save()) {
-            setter.accept(oldValue); // Roll back the in-memory state.
+        sw.write(value);
+        if (!GlowConfigManager.getInstance().save()) {
+            sw.write(oldValue); // Roll back the in-memory state.
             source.sendFailure(
-                    Component.translatable("glow.teammates.save_failed")
+                    Component.translatable("glow.teammates.save.failed")
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
@@ -400,11 +488,28 @@ public final class GlowCommand {
             clearNonPlayerGlow(source.getServer());
         }
         source.sendSuccess(
-                () -> Component.translatable("glow.teammates.config.set",
-                        feature, String.valueOf(value))
+                () -> Component.translatable(messageKey, sw.id, String.valueOf(value))
                         .withStyle(ChatFormatting.GREEN),
                 true);
         return 1;
+    }
+
+    private static int unknownSwitch(CommandSourceStack source, String id) {
+        source.sendFailure(
+                Component.translatable("glow.teammates.config.unknown", id)
+                        .withStyle(ChatFormatting.RED));
+        return 0;
+    }
+
+    /** Suggests every switch name, narrowed by the typed prefix (like teams). */
+    private static CompletableFuture<Suggestions> suggestSwitches(
+            CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+        List<String> ids = new ArrayList<>();
+        for (FeatureSwitch sw : FeatureSwitch.values()) {
+            ids.add(sw.id);
+        }
+        suggestMatchingTypedPrefix(builder, ids);
+        return builder.buildFuture();
     }
 
     /**

@@ -36,6 +36,15 @@ public class GlowConfigManager {
     private static final String FILENAME = "glow-my-teammates.json";
     private static final GlowConfigManager INSTANCE = new GlowConfigManager();
 
+    /**
+     * Feature-switch defaults — the single source of truth for {@code config
+     * reset} and every load/repair path that falls back to defaults. Exposed
+     * so {@code GlowCommand}'s switch table can carry the reset value without
+     * duplicating the literal.
+     */
+    public static final boolean DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY = false;
+    public static final boolean DEFAULT_NON_PLAYER_GLOW = false;
+
     private boolean enabled = true;
     private final Set<String> enabledTeams = new LinkedHashSet<>();
     private Path configPath;
@@ -66,14 +75,14 @@ public class GlowConfigManager {
      * Whether a viewer in a glow-enabled team sees only their own teammates
      * on the locator bar. Default {@code false}.
      */
-    private boolean locatorBarTeammatesOnly;
+    private boolean locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
 
     /**
      * Whether non-player entities (mobs) are eligible for team glow. Default
      * {@code false} — once enabled, mob-dense farms pay per-dirty-packet
      * overhead in {@code ServerEntityMixin#redirectSendData}.
      */
-    private boolean nonPlayerGlow;
+    private boolean nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
 
     public static GlowConfigManager getInstance() {
         return INSTANCE;
@@ -117,8 +126,8 @@ public class GlowConfigManager {
                         // Legacy config (no `config` sub-object): explicitly
                         // reset to defaults — never inherit a previous world's
                         // switch state from the process-wide singleton.
-                        this.locatorBarTeammatesOnly = false;
-                        this.nonPlayerGlow = false;
+                        this.locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
+                        this.nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
                     }
                     // Schema migration: a missing version array (legacy, major 0),
                     // the pre-1.1.1 key rename, or a literal-null `config`
@@ -158,8 +167,8 @@ public class GlowConfigManager {
             // otherwise leak teams into this new world's config file).
             this.enabled = true;
             this.enabledTeams.clear();
-            this.locatorBarTeammatesOnly = false;
-            this.nonPlayerGlow = false;
+            this.locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
+            this.nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
             save();
             this.version++;
         }
@@ -206,8 +215,8 @@ public class GlowConfigManager {
     private void resetToDefaultsAndPersist() {
         this.enabled = true;
         this.enabledTeams.clear();
-        this.locatorBarTeammatesOnly = false;
-        this.nonPlayerGlow = false;
+        this.locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
+        this.nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
         save();
         this.version++;
     }
@@ -424,8 +433,8 @@ public class GlowConfigManager {
     }
 
     public static class ConfigSubData {
-        boolean locatorBarTeammatesOnly = false;
-        boolean nonPlayerGlow = false;
+        boolean locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
+        boolean nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
 
         ConfigSubData() {}
     }

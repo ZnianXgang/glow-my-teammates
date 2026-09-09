@@ -42,7 +42,7 @@ public final class WaypointSync {
 
     /**
      * Rebuild every player-transmitted connection in every dimension — used
-     * by the command paths ({@code /teamglow on|off}, team add/remove, config
+     * by the command paths ({@code /teamglow toggle}, team add/remove, config
      * toggles) where the filter rules themselves changed. Only player
      * transmitters are rebuilt (non-players don't transmit by default:
      * {@code WAYPOINT_TRANSMIT_RANGE} defaults to 0). Dimensions with the

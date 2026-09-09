@@ -38,17 +38,21 @@ Done — members of `red` now glow for each other.
 
 ## 🛠️ Commands
 
-Every command is gated by a permission node under `glow-my-teammates.command.*` (compatible with LuckPerms). Without a permission mod, management commands fall back to OP level 2, read-only commands are available to everyone.
+Every command is gated by a permission node under `glow-my-teammates.command.*` (compatible with LuckPerms). Without a permission mod, management commands fall back to OP level 2; `/teamglow status` is available to everyone.
 
 | Command | Permission node (fallback) | Description |
 |---|---|---|
-| `/teamglow on` / `off` | `glow-my-teammates.command.on` / `.off` (OP 2) | Enable / disable team glow globally |
-| `/teamglow status` | `glow-my-teammates.command.status` (all) | Show global state and enabled teams |
-| `/teamglow team add <team>` | `glow-my-teammates.command.team.add` (OP 2) | Enable glow for a team (with autocompletion) |
-| `/teamglow team remove <team>` | `glow-my-teammates.command.team.remove` (OP 2) | Disable glow for a team (with autocompletion) |
-| `/teamglow team list` | `glow-my-teammates.command.team.list` (all) | List teams with glow enabled |
-| `/teamglow config` | `glow-my-teammates.command.config` (OP 2) | Show feature switches |
-| `/teamglow config <switch> <true\|false>` | `glow-my-teammates.command.config` (OP 2) | Toggle a feature switch |
+| `/teamglow status` | `glow-my-teammates.command.status` (all) | Show whether team glow is enabled |
+| `/teamglow toggle` | `glow-my-teammates.command.toggle` (OP 2) | Toggle team glow globally |
+| `/teamglow team list` | `glow-my-teammates.command.team` (OP 2) | List teams with glow enabled |
+| `/teamglow team add <team>` | `glow-my-teammates.command.team` (OP 2) | Enable glow for a team (with autocompletion) |
+| `/teamglow team remove <team>` | `glow-my-teammates.command.team` (OP 2) | Disable glow for a team (with autocompletion) |
+| `/teamglow config list` | `glow-my-teammates.command.config` (OP 2) | List feature switches and their values |
+| `/teamglow config get <switch>` | `glow-my-teammates.command.config` (OP 2) | Show one feature switch |
+| `/teamglow config set <switch> <true\|false>` | `glow-my-teammates.command.config` (OP 2) | Set a feature switch |
+| `/teamglow config reset <switch>` | `glow-my-teammates.command.config` (OP 2) | Reset a feature switch to its default |
+
+> **Upgrading from 1.1.x?** Permission nodes were consolidated — `command.on` / `.off` became `command.toggle`, and `command.team.add` / `.remove` / `.list` became `command.team`. Update any LuckPerms grants; `command.config` is unchanged.
 
 ### Feature switches
 
@@ -94,7 +98,7 @@ Uses [Stonecutter](https://stonecutter.kikugie.dev/) to build both supported ver
 ./gradlew build -Prelease
 ```
 
-Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.1.2-dev+26.2.jar` or release `glow-my-teammates-1.1.2+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
+Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.2.0-dev+26.2.jar` or release `glow-my-teammates-1.2.0+26.2.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
 
 ## 📜 License
 

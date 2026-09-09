@@ -99,11 +99,20 @@ The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)`
 
 ## 6. Commands & permissions (`GlowCommand`)
 
-The command tree and its permission nodes (with fallbacks) are listed in README's command table.
+The command tree and its permission nodes (with fallbacks) are listed in README's command table. Four nodes, no deeper:
+
+- `command.status` (all) — `/teamglow`, `status`
+- `command.toggle` (OP 2) — `toggle`
+- `command.team` (OP 2) — the whole `team` group
+- `command.config` (OP 2) — the whole `config` group
 
 - Permission nodes via `PermissionPredicates.require(node, fallbackLevel)` (Fabric `permission.v1`); `PermissionLevel` is the **Mojang** enum `net.minecraft.server.permissions.PermissionLevel`. LuckPerms needs no adapter.
+- A group gate sits on the group literal (`team` / `config`) only — Brigadier ANDs a parent's `requires()` into every child, so per-subcommand gates would be redundant. Consequence: a group's read commands inherit its write permission (`team list` / `config list` / `config get` are OP 2).
+- `status` reports **only** the global on/off state. Team and switch details stay behind the OP 2 group commands, so the public node never exposes them.
 - The bare `/teamglow` shortcut checks its status permission **inside the executor** — a root `requires()` would AND it into every subcommand (Brigadier semantics).
-- Config-switch messages use one generic key `glow.teammates.config.set` — new switches never need a lang-file entry.
+- Feature switches are defined once in the `FeatureSwitch` enum (id, default, reader, writer, `SwitchEffect`); the command tree, `config list` and `config reset` all derive from it. Adding a switch = one enum constant, no command-tree or lang changes.
+- Feature-switch messages use three generic keys (`glow.teammates.config.entry` / `.set` / `.reset`) plus `.unknown` for a bad name — new switches never need a lang-file entry.
+- Switch defaults live in `GlowConfigManager.DEFAULT_*`, the single source of truth for the field initialisers, the legacy/no-file load paths and `resetToDefaultsAndPersist`.
 - Every mutating command validates the `save()` result and rolls the in-memory state back on failure.
 - Team suggestions **must** narrow by the typed prefix (`suggestMatchingTypedPrefix`, case-insensitive `startsWith` on `builder.getRemainingLowerCase()`) — vanilla's own team argument filters as you type, and Brigadier does not filter for you.
 
@@ -115,7 +124,7 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 - Per-version deps live in `versions/<mc>/gradle.properties`. `fabricloader`, `fabric-api` and `minecraft` are expanded into `fabric.mod.json` by `processResources` — inside that closure a bare `property(...)` resolves against the **task**, so per-version values must be read via `project.property(...)`. Server-translations-api differs per MC and is bundled with `implementation include(...)`.
 - Version-gated code uses `//? if 26.2 { ... } //?} else { ... }`. Currently **no** source file needs gates.
 - `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
-- A bare `./gradlew build` is a **dev build** — the version gets a `-dev` suffix (`1.1.2-dev+26.2`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.1.2+26.2`). Only distribute `-Prelease` jars.
+- A bare `./gradlew build` is a **dev build** — the version gets a `-dev` suffix (`1.2.0-dev+26.2`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.2.0+26.2`). Only distribute `-Prelease` jars.
 - Work directly on `main`; conventional commits (`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`), single concern per commit. Before committing: Reset active project, then verify `./gradlew build` passes.
 - Version bumps live in root `gradle.properties` (`mod_version`); jar names and `fabric.mod.json` follow automatically. Keep README's config example and jar-name lines in sync with the version.
 
