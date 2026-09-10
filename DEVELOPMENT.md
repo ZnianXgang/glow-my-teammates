@@ -78,9 +78,13 @@ The two-arg `removePlayerFromTeam` **throws `IllegalStateException`** for non-me
 
 ### 4.3 Load & migration order (in `loadFromWorld`)
 
-Parse → read the `config` sub-object → migrate legacy schemas (missing `configVersion` or the pre-1.1.1 key `locatorBarHideOtherGlowingTeams`) → only then `version++`. The migration write is itself a config change, and the cache-invalidation semantics depend on the counter reflecting it; adding a new switch later = minor bump only, no migration code.
+`version++` happens **once, up front**: the opening `resetToDefaults()` in `loadFromWorld` bumps it for the whole load, before anything is parsed. So there is no ordering constraint left between migration and the counter — the migration write is a config change, but the bump that covers it already happened, and adding a new switch later is still a minor schema bump only, no migration code.
 
-Broken or literal-null config → `resetToDefaultsAndPersist()` — defaults, repair-save, then `version++` (persist-before-bump). Persistence is atomic (tmp file + `ATOMIC_MOVE`, retry fallback for Windows locks); a failed `save()` is reported back so commands roll back their in-memory state.
+The rest of the sequence is: parse → read the `config` sub-object → migrate legacy schemas (missing `configVersion`, the pre-1.1.1 key `locatorBarHideOtherGlowingTeams`, or a literal-null `config`) → persist the repair when any of those applied.
+
+Broken or literal-null config → `resetToDefaultsAndPersist()` — defaults, repair-save (the `version` bump already happened in `resetToDefaults()`, so the repair deliberately does not add its own). The read step is deliberately split from the parse step: an `IOException` means the file could not be *read* (lock, permissions, failing disk), which is indistinguishable from corruption, so the file is left alone, defaults are used in memory, and `configReadFailed` blocks every later `save()` for the session so the first admin command cannot overwrite it with defaults; a `RuntimeException` from parsing is genuine corruption and *is* repaired on the spot. Persistence is atomic (tmp file + `ATOMIC_MOVE`, retry fallback for Windows locks); a failed `save()` is reported back so commands roll back their in-memory state.
+
+`save()` returns `false` both when the write fails and when `configReadFailed` is set — commands only need to know "not persisted" to roll back and report, so no extra branch is required.
 
 ## 5. Locator-bar filter (`LivingEntityMixin`)
 
@@ -92,7 +96,7 @@ Semantics are **asymmetric and receiver-driven**:
 3. Receiver in a glow-enabled team → only same-team members stay visible; every other entity is hidden (`!receiverTeam.equals(myTeam)` → `Optional.empty()`). No separate glow check on `myTeam` needed: equals already implies the same glow-enabled team.
 
 Connection re-evaluation (`WaypointSync`, all methods server-thread only):
-- **Filter rules changed** (switch toggles, `team add/remove`, `on|off`): `WaypointSync.rebuildAll` — every player-transmitted connection in every dimension.
+- **Filter rules changed** (switch toggles, `team add/remove`, `toggle`): `WaypointSync.rebuildAll` — every player-transmitted connection in every dimension.
 - **Team membership changed** while the switch is on: `ScoreboardMixin` → `WaypointSync.rebuildForPlayer` per affected player. Required because the filter is **receiver-driven** — vanilla's own rebuilds only cover the changed player as a *sender*. `rebuildForPlayer` only marks the dimension; the rebuild runs once per tick at the boundary (`END_SERVER_TICK` → `flushPendingRebuilds`), which collapses bursts and guarantees the pass sees the *final* team state. Pending set cleared on `SERVER_STOPPING`.
 
 The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)` — the same call vanilla's `updateTeamWaypoints` makes. No Stonecutter gates: the interface is identical in 26.1/26.2.
@@ -142,7 +146,7 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 2. **Mojang mappings only.** `Identifier` is `net.minecraft.resources.Identifier`, not `ResourceLocation`; `net.minecraft.server.permissions.PermissionLevel`, not a Fabric enum.
 3. **Non-glow team changes must not bump `syncEpoch`** — auto-team plugins cause constant membership churn; bumping for non-glow teams would resync the whole server for nothing.
 4. **Idempotent setters or pay the resync cost** (§4.2 — and keep the command-side guard on `addTeam`).
-5. **`configVersion` migration must precede `version++`** (§4.3).
+5. **Keep the load sequence's `version++` in exactly one place** — the opening `resetToDefaults()`; repair/migration paths must not add their own bump (§4.3). Reading and parsing must also stay in separate `try` blocks, or a file that merely could not be *read* gets treated as corrupt and overwritten.
 6. **Mixin target classes load on the client too** (`environment: "*"`). The `ServerEntity`/`LivingEntity` hooks are harmless there, but `ScoreboardMixin` is the exception — `ClientPacketListener` mutates the *client* scoreboard from the client thread in singleplayer/LAN, so its hooks **do** fire off the server thread. `onTeamChange` must ignore anything that is not the server's own scoreboard on the server thread (`server.getScoreboard() == this && server.isSameThread()`, `server` null before `SERVER_STARTED`) before touching the shared counters or `WaypointSync`; the server fires the same hook on its own thread before broadcasting the team packet, so nothing is lost. Never put client-only code in a shared mixin.
 7. **Server-Translations keys live in `data/<modid>/lang/`, not `assets/`** — the server reads the former.
 8. **Never define fields in `@Mixin` interfaces** — even `static final` constants are injected into the target class and fail validation unless `@Shadow` (`InvalidInterfaceMixinException`). Shared constants live in `GlowConstants`.

@@ -31,6 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/teamglow team add` / `/teamglow team remove` suggestions now narrow as you type, matching vanilla's own team argument.
 - Schema-1 config files with a null `config` object are repaired on load instead of being skipped.
 - Hardened the locator-bar rebuild and non-player glow cleanup paths against stale levels and players disconnecting mid-cleanup.
+- A config file that could not be **read** (temporarily locked, permission denied, unreadable disk) is no longer overwritten with defaults — the previous behavior destroyed a valid team list on a transient I/O error. The file is left untouched, defaults are used for the session, and every save is refused until a restart reads it successfully. The load path now distinguishes a *read* failure from a *parse* failure, so genuinely unparseable JSON, an empty file, or a literal `null` is still repaired on the spot as before.
+- The `LICENSE` file is now actually bundled into the jar. Stonecutter builds each version as a subproject under `versions/<mc>/`, so the bare `from("LICENSE")` resolved to a nonexistent `versions/<mc>/LICENSE` and silently included nothing.
 
 ### Performance
 
