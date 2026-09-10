@@ -62,7 +62,10 @@ jar {
 	def projectName = project.name
 	inputs.property "projectName", projectName
 
-	from("LICENSE") {
+	// Resolve against the root project explicitly: Stonecutter builds each MC
+	// version as a subproject of `versions/<mc>/`, so a bare relative path
+	// would look for `versions/<mc>/LICENSE` and silently bundle nothing.
+	from(rootProject.file("LICENSE")) {
 		rename { "${it}_$projectName"}
 	}
 }
