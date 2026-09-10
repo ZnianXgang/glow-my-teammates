@@ -9,29 +9,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Breaking Changes
 
 - `/teamglow on` and `/teamglow off` are replaced by **`/teamglow toggle`**.
-- Feature switches are managed with **`/teamglow config get|set|reset <switch>`**. The previous `/teamglow config <switch> <value>` form is gone.
-- Permission nodes are consolidated — the per-subcommand nodes no longer exist:
-  - `command.on` / `command.off` → `command.toggle`
-  - `command.team.add` / `.remove` / `.list` → `command.team`
-  - `command.config` keeps its name and now covers the whole group
-  - Update LuckPerms grants accordingly.
-- `team list`, `config list` and `config get` now require **OP 2** (they were available to everyone). `/teamglow status` stays public.
-- Minimum Fabric Loader is now **0.19.3** for both Minecraft 26.1 and 26.2 (26.1 previously required 0.18.4).
+- Bare `/teamglow config` no longer prints the switch list — that output moved to **`/teamglow config list`**, and `/teamglow config` on its own now reports an incomplete command.
+- Setting a switch gained an explicit verb: `/teamglow config <switch> <value>` is now **`/teamglow config set <switch> <value>`**.
+- `/teamglow status` reports only the global on/off state; it no longer lists enabled teams or switch values.
+- Permission nodes were consolidated: `command.on` / `command.off` → `command.toggle`, and `command.team.add` / `.remove` / `.list` → `command.team`. `command.config` is unchanged. Update any LuckPerms grants.
+- `/teamglow team list` now requires **OP 2**; it used to be available to everyone.
+- Minimum Fabric Loader is now **0.19.3** for both 26.1 and 26.2 (26.1 previously required 0.18.4). Minimum Fabric API is `0.155.3+26.1.2` (26.1) and `0.157.0+26.2` (26.2).
 
 ### Added
 
+- `/teamglow config list` — every switch with its current value.
+- `/teamglow config get <switch>` — the current value of a single switch.
 - `/teamglow config reset <switch>` — restore a switch to its default value.
-- `/teamglow config get <switch>` — query a single switch, phrased like vanilla `/gamerule`.
-- Tab-completion for switch names in `config get` / `set` / `reset`.
 
 ### Changed
 
-- `/teamglow status` now reports only the global on/off state; team and switch details moved behind the OP 2 group commands.
-- Minimum Fabric API: `0.155.3+26.1.2` (26.1) and `0.157.0+26.2` (26.2).
+- Development builds now carry a `-dev` version suffix, so they cannot be mistaken for release jars.
 
 ### Fixed
 
-- `/teamglow team add|remove` suggestions now narrow as you type, matching vanilla's own team argument.
+- `/teamglow team add` / `/teamglow team remove` suggestions now narrow as you type, matching vanilla's own team argument.
 - Schema-1 config files with a null `config` object are repaired on load instead of being skipped.
 - Hardened the locator-bar rebuild and non-player glow cleanup paths against stale levels and players disconnecting mid-cleanup.
 
@@ -120,6 +117,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Fully server-side; no client mod required.
 - Built on the vanilla `/team` system — no custom team management.
 - `/teamglow` command to control which teams have glow enabled.
-- Permission-controlled commands (OP level 2 for `on` / `off` / `add` / `remove`).
+- Permission-controlled commands (OP level 2 for `/teamglow on`, `/teamglow off`, `/teamglow team add` and `/teamglow team remove`).
 - Per-world config saved as `glow-my-teammates.json` in the world folder.
 - Does not interfere with vanilla glowing (spectral arrows, potions).
