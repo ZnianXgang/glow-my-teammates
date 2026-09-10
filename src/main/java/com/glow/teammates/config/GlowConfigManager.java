@@ -25,8 +25,10 @@ import java.util.*;
  * <p><strong>Threading:</strong> all mutable state is owned by the server
  * thread (commands, ServerEntity ticks, Scoreboard events) and must only be
  * written from it; reading live state from async contexts is unsupported.
- * Only {@link #getEnabledTeams()} returns a defensive snapshot safe to
- * iterate anywhere.
+ * {@link #getEnabledTeams()} returns a defensive snapshot, but that copy is
+ * taken on the server thread: it protects async <em>iteration</em> from a
+ * mutation only if the caller snapshotting it is itself on the server thread
+ * (or otherwise externally synchronized). It is not a thread-safe accessor.
  */
 public class GlowConfigManager {
     private static final Gson GSON = new GsonBuilder()
@@ -116,6 +118,13 @@ public class GlowConfigManager {
         // entities that cached the old state force a resync.
         resetToDefaults();
 
+        // Nothing in this process has saved yet, so any temp file left next to
+        // the config is an orphan from a previous run that died mid-write
+        // (SIGKILL, power loss) — that path never reaches save()'s finally
+        // block, and save() overwrites the name on its next write anyway. Drop
+        // it here once so it cannot linger in the world directory forever.
+        clearOrphanedTempFile();
+
         if (file.exists()) {
             String rawJson;
             try {
@@ -154,6 +163,34 @@ public class GlowConfigManager {
                     "No config file found at {}, creating default", configPath);
             save();
         }
+    }
+
+    /**
+     * Best-effort removal of a {@code .tmp} file orphaned by a previous run
+     * that died between creating it and moving it into place. Called once at
+     * startup, before this process has written anything, so the file cannot
+     * belong to a live write. Never fails the load: a temp file we cannot
+     * delete is a cosmetic leftover, not a reason to run without config.
+     */
+    private void clearOrphanedTempFile() {
+        try {
+            Path tmpPath = tempPath();
+            if (Files.deleteIfExists(tmpPath)) {
+                GlowMyTeammates.LOGGER.warn(
+                        "Removed leftover temp file {} from an interrupted save", tmpPath);
+            }
+        } catch (IOException | SecurityException e) {
+            GlowMyTeammates.LOGGER.warn("Could not remove a leftover config temp file", e);
+        }
+    }
+
+    /**
+     * The sibling {@code .tmp} path that {@link #save()} writes and then moves
+     * into place. Single definition so the save and cleanup paths cannot drift
+     * apart. Only valid once {@link #loadFromWorld} has set {@code configPath}.
+     */
+    private Path tempPath() {
+        return configPath.resolveSibling(configPath.getFileName() + ".tmp");
     }
 
     /**
@@ -233,6 +270,18 @@ public class GlowConfigManager {
         // write is covered by that bump regardless of when it lands.
         int major = (data.configVersion == null || data.configVersion.length == 0)
                 ? 0 : data.configVersion[0];
+        // A NEWER major is not legacy and not ours to understand: the arrays we
+        // get from an unknown schema may mean something else entirely, and the
+        // save below would silently rewrite the file as [1, 1]. This only
+        // happens if a file was written by a future release and then downgraded
+        // (or edited by hand), so warn and leave what we cannot migrate alone.
+        if (major > 1) {
+            GlowMyTeammates.LOGGER.warn(
+                    "Config file {} declares schema version {} but this build understands "
+                            + "only major 1; unknown fields are ignored and any command that "
+                            + "saves will rewrite it as [1, 1]",
+                    configPath, major);
+        }
         boolean migratedSwitchName = migrateLocatorBarSwitchName(rawJson);
         if (major < 1 || migratedSwitchName || data.config == null) {
             if (!save()) {
@@ -317,7 +366,7 @@ public class GlowConfigManager {
                     configPath);
             return false;
         }
-        Path tmpPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
+        Path tmpPath = tempPath();
         try {
             Files.createDirectories(configPath.getParent());
             ConfigData data = new ConfigData(enabled, new ArrayList<>(enabledTeams));
@@ -489,8 +538,10 @@ public class GlowConfigManager {
     }
 
     public Set<String> getEnabledTeams() {
-        // Snapshot, not a live view: async readers (e.g. permission plugins)
-        // must never hit a CME while iterating the server-thread-owned set.
+        // Snapshot, not a live view — protects a caller that iterates the result
+        // from a concurrent mutation of the server-thread-owned set. Callers
+        // that are not on the server thread must still synchronize externally:
+        // taking this copy is itself a read of a non-thread-safe collection.
         return Collections.unmodifiableSet(new LinkedHashSet<>(enabledTeams));
     }
 

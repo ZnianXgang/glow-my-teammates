@@ -32,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema-1 config files with a null `config` object are repaired on load instead of being skipped.
 - Hardened the locator-bar rebuild and non-player glow cleanup paths against stale levels and players disconnecting mid-cleanup.
 - A config file that could not be **read** (temporarily locked, permission denied, unreadable disk) is no longer overwritten with defaults — the previous behavior destroyed a valid team list on a transient I/O error. The file is left untouched, defaults are used for the session, and every save is refused until a restart reads it successfully. The load path now distinguishes a *read* failure from a *parse* failure, so genuinely unparseable JSON, an empty file, or a literal `null` is still repaired on the spot as before.
+- A config whose `configVersion` declares a **newer major** than this build understands now logs a warning at startup. Its fields are still parsed on a best-effort basis, but it is no longer silently rewritten as `[1, 1]` without a trace.
+- A `.tmp` file orphaned by a save interrupted at the wrong moment (killed JVM, power loss) is removed once at startup instead of lingering in the world directory forever.
 - The `LICENSE` file is now actually bundled into the jar. Stonecutter builds each version as a subproject under `versions/<mc>/`, so the bare `from("LICENSE")` resolved to a nonexistent `versions/<mc>/LICENSE` and silently included nothing.
 
 ### Performance
