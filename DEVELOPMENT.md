@@ -155,12 +155,64 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 
 ### 9.1 Global `syncEpoch` resync stays global
 
-Any membership change in a glow-enabled team bumps the shared `syncEpoch`; every glowing entity then forces one broadcast to all its tracking viewers. Kept global on purpose: per-team granularity is a correctness liability (a viewer switching teams changes which entities need resyncing). The one-shot-per-bump bill only covers *quiet* entities — a continuously-dirty glowing entity rides the per-packet path: `redirectSendData` detects the stale counters, appends one shared-flags item to that round's no-glow broadcast, and settles all three caches right after.
+Any membership change in a glow-enabled team bumps the shared `syncEpoch`; every glowing entity then re-syncs against its tracking viewers. Kept global on purpose: per-team granularity is a correctness liability, because the `isTeammate` predicate is evaluated against the *viewer's* team (`ServerEntityMixin:363-364`), so one viewer switching teams changes which entities have to be re-sent to that viewer.
+
+The cost has two components, and only the first is a one-off.
+
+1. **Settled entities** pay one forced broadcast per bump (`smartForcePacket`, `ServerEntityMixin:104-142`).
+2. **Continuously-dirty entities** ride the per-packet path instead, and pay something on *every* dirty send, not just on a bump: the round's no-glow broadcast plus a flags-only glow packet per teammate (`ServerEntityMixin:393-394`). That second packet is the mod's steady-state network cost and what README's "Network footprint" measures — §9.1 is not a claim that glowing entities cost vanilla-level bandwidth, only that *membership changes* add just one round to settled entities.
+
+Inside the dirty path, the stale-counter repair is narrower than it looks: `modifyGlowFlag(dataPacket, false, viewerSideChanged)` appends a shared-flags item **only when the round's packet does not already carry one** (`ServerEntityMixin:456-483`); when it does, the byte is rewritten in place (`:441-455`), and all three caches settle **only when `viewerSideChanged`** (`:382-386`).
 
 ### 9.2 Per-packet scoreboard lookups are accepted
 
-One `getPlayersTeam` lookup per entity per dirty send plus one per viewer in the `isTeammate` predicate. Each is an O(1) hash probe, dwarfed by the two packet allocations every dirty send already pays; caching the entity's team would need precise invalidation the global `syncEpoch` cannot distinguish.
+Two lookups: one `getPlayersTeam` per entity per dirty send (`getGlowingTeam`, `ServerEntityMixin:229-240`), plus one `viewer.getTeam()` **per viewer** inside the `isTeammate` predicate (`:363-364`, run by `sendToTrackingPlayersFiltered` once per entry in the tracking set).
+
+The second one scales with the tracking set, so it is not "dwarfed by the two packet allocations": for a player in a crowd the predicate is dozens of scoreboard probes per dirty send, the same order as the per-viewer packet work it rides along with. It stays acceptable because it is O(1) per viewer and is not the dominant term, not because it is a negligible constant.
+
+Do **not** use the caching argument for both teams — it only holds for one of them:
+
+- **The entity's team cannot be cached.** Its team can change without any counter moving (a change in a *non*-glow team never bumps `syncEpoch`, by design — §8.3), so there is no counter that would invalidate a cached entity team. `syncEpoch` genuinely cannot distinguish this case.
+- **A viewer's team can be cached.** That team only affects the outcome if it is glow-enabled, and entering or leaving a glow-enabled team is exactly what `ScoreboardMixin` bumps `syncEpoch` for (`ScoreboardMixin:57-60`), so `syncEpoch` *is* a sound invalidation key for a `viewer → team` lookup. The one case that moves no counter — a viewer joining a **non**-glow team — is harmless: the entity-side check has already pinned the comparison to a glow-enabled team, so both the stale cached value and a freshly read one yield the same `false`.
+
+The lookups are accepted because they are unmeasured, not because they are proven cheap: keep them until a profile shows per-viewer work dominating a dirty send.
 
 ### 9.3 `clearNonPlayerGlow` is a one-shot command
 
-Iterates every non-player entity once when `non_player_glow` is switched off. It builds a chunk → tracking-players map (one O(players × tracked chunks) pass), so the per-entity work is a hash lookup; at command frequency this is acceptable and not worth optimizing.
+Iterates every non-player entity once when `non_player_glow` is switched off — the switch only fires this on the true→false edge (`GlowCommand.applySwitch`), so it is one command-triggered pass, not a recurring one.
+
+The dominant term is **building the chunk → tracking-players map**, not the per-entity loop. That map is `players × |ChunkTrackingView|` `computeIfAbsent` calls (`GlowCommand:543-550`). The count is exact, not approximate: `ChunkTrackingView.Positioned.forEach` scans the box `minX..maxX` = `center ± (viewDistance + 1)` and keeps what `isWithinDistance(..., includeNeighbors = true)` accepts, so a view distance of 10 yields **473** chunks per player (from 23 × 23 = 529 candidates; the buffer radius of 2 clips the corners). At 20 players online that is ~9,500 insertions plus 20 `forEach` lambda passes, doubling at 40. Only after that is each entity's viewer lookup a hash `get` (`:570`) — cheap, but it is the smaller half.
+
+That pass grows with online player count, which is the number to check before judging it: negligible on a small server, a visible main-thread hitch on a busy one. Accepted because it needs an admin to toggle the switch, not because the constant is small.
+
+The cost of the switch being **on** is the other side of this and is not covered here: every glowing non-player entity then sends a glow packet to each of its tracking viewers on every dirty send (README's `non_player_glow` row). That, not this cleanup, is what mob-dense farms pay.
+
+## 10. Settled questions from the code review
+
+Everything below was verified against the 26.2 sources and deliberately left alone. It exists so the next review does not re-derive it — and so the withdrawn claims are not re-reported as defects and "fixed" into a regression.
+
+### 10.1 Decided: not changing
+
+- **A stale glow bit can outlive a non-command switch change.** Clear paths depend on a counter moving. Disabling `non_player_glow` through *another* mod's `setNonPlayerGlow(false)` therefore clears on the next dirty send or quiet tick rather than instantly. That is intended, not unsolved: the quiet path is documented at `ServerEntityMixin:91-101` ("even when `clearNonPlayerGlow` wasn't run (e.g. another mod disabled the switch directly)"), and the dirty path is `clearStaleGlow` (`:251-272`). The command paths (`GlowCommand.clearNonPlayerGlow`) broadcast a clear synchronously and have no such window.
+  - **Two clear paths are complementary, never redundant.** `clearStaleGlow` covers an entity that *stopped* being customized; `forceIncludeFlags` covers a viewer-side change while the entity *still is*. Removing either silently loses the stale-bit clear. Do not "simplify" one away.
+- **The `non_player_glow` toggle pass scales with online players.** Accepted; see §9.3.
+- **`loom_version` stays `1.17-SNAPSHOT`.** Fabric's own documentation recommends tracking the Loom snapshot, and it does not affect the published artifact beyond reproducibility of the build environment.
+- **The locator-bar drain budget warning is not rate-limited.** A stuck queue re-fills every tick, so one warning per tick is precisely what "this is still happening" looks like; a first-warn-only flag would suppress that, and its reset condition would never be reached in the pathological case anyway. See the comment above the warning in `WaypointSync.flushPendingRebuilds`.
+
+### 10.2 Verified as *not* problems
+
+Reported during review and disproved; listed so they are not re-opened. (Fixes that came out of the same review are release notes, not architecture — see `CHANGELOG.md`.)
+
+- **"The mod sends a redundant no-glow packet to every tracker."** No. The `sendToTrackingPlayersAndSelf(noGlowPacket)` at `ServerEntityMixin:393` *is* the vanilla call the `@Redirect` replaced, not an addition, and non-teammates receive the original packet object unchanged. Extra traffic is one small packet **per teammate**.
+- **"The `vanillaGlow` branch is dead code."** No. `packDirty()` returns only *changed* entries, so a round can legitimately carry no shared-flags entry — the branch settles the caches, which is what keeps a vanilla-glowing entity from forcing a redundant broadcast every tick.
+- **"`clearStaleGlow`'s no-flags-entry path is unreachable."** Unproven, and the reasoning was wrong: the client's `0x40` is a per-client overlay absent from the server's `entityData`, so "the server byte never changed" does not imply "no client carries a stale bit". It is a correct fallback; keep it.
+- **"A new tracker can inherit a stale glow bit."** No. `onAddPairing` returns early while `non_player_glow` is off (`ServerEntityMixin:163-165`), and a fresh pairing only ever sees vanilla's `trackedDataValues`, which the mod never writes. There is nothing for a new client to inherit.
+- **`cachedGlowFlags != current` is not a reference-comparison bug.** The `Byte` operand unboxes to `byte`, so this is a numeric comparison. The cache stays coherent because the byte it was built from is only reused while the entity's server-side data is unchanged.
+- **Language keys, NPE surface, and `moveIntoPlace` error handling** were checked point by point and found complete/bounded.
+
+### 10.3 Platform facts worth not re-deriving
+
+- Glow rendering is decided **client-side by the shared-flag bit** (`Minecraft.shouldEntityAppearGlowing` → `Entity.isCurrentlyGlowing()`); the mod never has to sync the GLOWING effect, and never writes server-side `entityData` (§8.1).
+- The outline colour comes from `Entity.getTeamColor()`, so it follows the vanilla team colour.
+- The bundled `server-translations-api` self-registers its `ModInitializer` and resolves `Component.translatable` per receiver at packet-encode time; the mod needs no translation code of its own. Keys belong in `data/<modid>/lang/` (§8.7).
+- `addPairing`'s `@Inject TAIL` is safe because vanilla sends the pairing bundle before `startSeenByPlayer`, so the glow overlay always follows the spawn packet on the same connection.
