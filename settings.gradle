@@ -5,8 +5,8 @@ pluginManagement {
 			url = 'https://maven.fabricmc.net/'
 		}
 		maven {
-			name = 'KikuGie Snapshots'
-			url = 'https://maven.kikugie.dev/snapshots'
+			name = 'KikuGie Releases'
+			url = 'https://maven.kikugie.dev/releases'
 		}
 		mavenCentral()
 		gradlePluginPortal()
@@ -22,8 +22,8 @@ stonecutter {
 	centralScript = 'build.gradle'
 
 	create(rootProject) {
-		versions '26.1', '26.2'
-		vcsVersion = '26.2'
+		versions '26.1', '26.2', '26.3'
+		vcsVersion = '26.3'
 	}
 }
 

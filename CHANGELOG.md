@@ -14,13 +14,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `/teamglow status` reports only the global on/off state; it no longer lists enabled teams or switch values.
 - Permission nodes were consolidated: `command.on` / `command.off` → `command.toggle`, and `command.team.add` / `.remove` / `.list` → `command.team`. `command.config` is unchanged. Update any LuckPerms grants.
 - `/teamglow team list` now requires **OP 2**; it used to be available to everyone.
-- Minimum Fabric Loader is now **0.19.3** for both 26.1 and 26.2 (26.1 previously required 0.18.4). Minimum Fabric API is `0.155.3+26.1.2` (26.1) and `0.157.0+26.2` (26.2).
+- Minimum Fabric Loader is now **0.19.3** for 26.1, 26.2 and 26.3 (26.1 previously required 0.18.4). Minimum Fabric API is `0.155.3+26.1.2` (26.1), `0.157.0+26.2` (26.2) and `0.160.3+26.3` (26.3).
 
 ### Added
 
 - `/teamglow config list` — every switch with its current value.
 - `/teamglow config get <switch>` — the current value of a single switch.
 - `/teamglow config reset <switch>` — restore a switch to its default value.
+- Support for **Minecraft 26.3**, built from the same codebase.
 
 ### Changed
 
