@@ -196,7 +196,6 @@ Everything below was verified against the 26.2 sources and deliberately left alo
 - **A stale glow bit can outlive a non-command switch change.** Clear paths depend on a counter moving. Disabling `non_player_glow` through *another* mod's `setNonPlayerGlow(false)` therefore clears on the next dirty send or quiet tick rather than instantly. That is intended, not unsolved: the quiet path is documented at `ServerEntityMixin:91-101` ("even when `clearNonPlayerGlow` wasn't run (e.g. another mod disabled the switch directly)"), and the dirty path is `clearStaleGlow` (`:251-272`). The command paths (`GlowCommand.clearNonPlayerGlow`) broadcast a clear synchronously and have no such window.
   - **Two clear paths are complementary, never redundant.** `clearStaleGlow` covers an entity that *stopped* being customized; `forceIncludeFlags` covers a viewer-side change while the entity *still is*. Removing either silently loses the stale-bit clear. Do not "simplify" one away.
 - **The `non_player_glow` toggle pass scales with online players.** Accepted; see §9.3.
-- **`loom_version` stays `1.17-SNAPSHOT`.** Fabric's own documentation recommends tracking the Loom snapshot, and it does not affect the published artifact beyond reproducibility of the build environment.
 - **The locator-bar drain budget warning is not rate-limited.** A stuck queue re-fills every tick, so one warning per tick is precisely what "this is still happening" looks like; a first-warn-only flag would suppress that, and its reset condition would never be reached in the pathological case anyway. See the comment above the warning in `WaypointSync.flushPendingRebuilds`.
 
 ### 10.2 Verified as *not* problems
@@ -213,6 +212,6 @@ Reported during review and disproved; listed so they are not re-opened. (Fixes t
 ### 10.3 Platform facts worth not re-deriving
 
 - Glow rendering is decided **client-side by the shared-flag bit** (`Minecraft.shouldEntityAppearGlowing` → `Entity.isCurrentlyGlowing()`); the mod never has to sync the GLOWING effect, and never writes server-side `entityData` (§8.1).
-- The outline colour comes from `Entity.getTeamColor()`, so it follows the vanilla team colour.
+- The outline color comes from `Entity.getTeamColor()`, so it follows the vanilla team color.
 - The bundled `server-translations-api` self-registers its `ModInitializer` and resolves `Component.translatable` per receiver at packet-encode time; the mod needs no translation code of its own. Keys belong in `data/<modid>/lang/` (§8.7).
 - `addPairing`'s `@Inject TAIL` is safe because vanilla sends the pairing bundle before `startSeenByPlayer`, so the glow overlay always follows the spawn packet on the same connection.
