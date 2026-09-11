@@ -41,6 +41,26 @@ public final class WaypointSync {
             Collections.newSetFromMap(new IdentityHashMap<>());
 
     /**
+     * Ceiling on the level-drain rounds one {@link #flushPendingRebuilds} call
+     * may run before deferring the rest to the next tick.
+     *
+     * <p>The drain loop has to tolerate reentrancy (a rebuild can trigger a
+     * team change, which re-marks a level), but no loop with an unbounded
+     * iteration count belongs on the tick path: if a rebuild re-marks a level
+     * on <em>every</em> pass — an external mod rewriting team membership from
+     * inside its own connection callbacks, which vanilla never does — it would
+     * spin here forever and wedge the tick loop instead of merely being slow.
+     *
+     * <p>Rounds, not dimensions: one round drains exactly one mark, so the
+     * budget covers the burst that accumulated <em>before</em> this drain (one
+     * mark per affected dimension, plus whatever the command paths marked)
+     * before it covers anything reentrant. 32 is far above a realistic
+     * multi-dimension burst and any real reentrancy depth, while still bounding
+     * the work this hook may do in a single tick.
+     */
+    private static final int MAX_FLUSH_ROUNDS = 32;
+
+    /**
      * Rebuild every player-transmitted connection in every dimension — used
      * by the command paths ({@code /teamglow toggle}, team add/remove, config
      * toggles) where the filter rules themselves changed. Only player
@@ -90,9 +110,17 @@ public final class WaypointSync {
      * reentrant team change during the rebuild re-adds the level, and the
      * drain loop keeps it pending (a live for-each plus a trailing
      * {@code clear()} would either drop the re-added mark or throw).
+     *
+     * <p>The drain is bounded by {@link #MAX_FLUSH_ROUNDS}, so a burst that
+     * keeps re-marking levels cannot spin here forever. Breaking out is safe:
+     * the drained marks are gone and each round rebuilds against the team state
+     * as of that round, so whatever re-marked a level has already been acted
+     * on. Any mark left behind stays pending and is drained at the next tick
+     * boundary, and a rebuild is idempotent, so re-running one is wasted work
+     * but never wrong.
      */
     public static void flushPendingRebuilds(MinecraftServer server) {
-        while (!pendingRebuilds.isEmpty()) {
+        for (int round = 0; round < MAX_FLUSH_ROUNDS && !pendingRebuilds.isEmpty(); round++) {
             ServerLevel level = pendingRebuilds.iterator().next();
             pendingRebuilds.remove(level);
             // Crash-recovery guard: a server that died without firing
@@ -111,6 +139,25 @@ public final class WaypointSync {
                     level.getWaypointManager().remakeConnections(other);
                 }
             }
+        }
+        // Out of budget with work still queued. The remaining marks are NOT
+        // dropped — they stay pending for the next tick — so this is a
+        // diagnostic, not a data loss. The message names the possible causes
+        // rather than asserting one: a large multi-dimension burst spends the
+        // budget just as legitimately as a rebuild that keeps re-marking its
+        // level, so blaming reentrancy outright would misreport the former.
+        //
+        // Deliberately NOT rate-limited: a stuck queue re-fills every tick
+        // while the condition lasts, so one warning per tick is what "this is
+        // still happening" looks like, and muting it would hide that. The flood
+        // is the alarm, and it only exists while something else is badly wrong.
+        if (!pendingRebuilds.isEmpty()) {
+            GlowMyTeammates.LOGGER.warn(
+                    "Locator-bar rebuild drain hit its {}-round budget for one tick with {} "
+                            + "dimension(s) still pending; the remainder is deferred to the next "
+                            + "tick (large multi-dimension burst, or team membership being changed "
+                            + "during the rebuild).",
+                    MAX_FLUSH_ROUNDS, pendingRebuilds.size());
         }
     }
 
