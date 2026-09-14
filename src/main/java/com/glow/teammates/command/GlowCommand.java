@@ -516,7 +516,7 @@ public final class GlowCommand {
      * Rebuild every locator-bar connection so the
      * {@code locator_bar_teammates_only} filter takes effect immediately —
      * the same re-evaluation {@code ScoreboardMixin} applies to individual
-     * players on team changes, here applied everywhere because the rules
+     * members on team changes, here applied everywhere because the rules
      * themselves changed.
      */
     private static void rebuildWaypointConnections(MinecraftServer server) {

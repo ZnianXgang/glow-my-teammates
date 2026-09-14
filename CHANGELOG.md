@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `locator_bar_teammates_only` now re-evaluates the locator-bar connections of **non-player transmitters** — mobs whose `waypoint_transmit_range` attribute was raised above 0. The rebuild paths iterated the player list, so such an entity kept its old visibility until a connection happened to break, which a stationary mob and an AFK viewer may never cause. Team membership resolution now also covers an entity's UUID string, so joining or leaving a team by a mob triggers the same rebuild players get.
+
 ## [1.2.0] - 2026-09-11
 
 ### Breaking Changes

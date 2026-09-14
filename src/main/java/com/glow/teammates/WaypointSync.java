@@ -4,10 +4,13 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.waypoints.WaypointTransmitter;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Rebuilds locator-bar waypoint connections so the
@@ -17,9 +20,11 @@ import java.util.Set;
  * but vanilla's rebuilds only cover the changed player as a <em>sender</em>.
  * The receiver side — what the changed player sees on their own bar — is only
  * re-evaluated when a connection turns {@code isBroken()}, which may never
- * happen for an AFK player. {@link #rebuildForPlayer} closes that gap by
- * rebuilding every player-sent connection in the affected player's dimension,
- * covering both directions.
+ * happen for an AFK player. {@link #rebuildForMember} closes that gap by
+ * rebuilding every connection transmitted in the affected member's dimension,
+ * covering both directions — players and non-players alike, since a
+ * non-player transmitter's connections are exactly the ones vanilla's
+ * player-list rebuilds drop.
  *
  * <p>All methods run on the server thread (command execution and scoreboard
  * events).
@@ -61,11 +66,9 @@ public final class WaypointSync {
     private static final int MAX_FLUSH_ROUNDS = 32;
 
     /**
-     * Rebuild every player-transmitted connection in every dimension — used
-     * by the command paths ({@code /teamglow toggle}, team add/remove, config
-     * toggles) where the filter rules themselves changed. Only player
-     * transmitters are rebuilt (non-players don't transmit by default:
-     * {@code WAYPOINT_TRANSMIT_RANGE} defaults to 0). Dimensions with the
+     * Rebuild every transmitted connection in every dimension — used by the
+     * command paths ({@code /teamglow toggle}, team add/remove, config
+     * toggles) where the filter rules themselves changed. Dimensions with the
      * locator-bar game rule off are skipped — no receiver can have connections.
      */
     public static void rebuildAll(MinecraftServer server) {
@@ -73,27 +76,81 @@ public final class WaypointSync {
             if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
                 continue;
             }
-            for (ServerPlayer player : level.players()) {
-                if (level.getWaypointManager().transmitters().contains(player)) {
-                    level.getWaypointManager().remakeConnections(player);
-                }
-            }
+            rebuildLevel(level);
         }
     }
 
     /**
-     * Mark the affected player's dimension for a receiver-side rebuild at the
-     * next tick boundary. Called from {@code ScoreboardMixin} on glow-enabled
-     * team changes while {@code locator_bar_teammates_only} is on. Offline or
-     * non-player members (mobs joined via their UUID string) are skipped —
-     * they have no connections to rebuild.
+     * Rebuild every connection transmitted from {@code level}.
+     *
+     * <p>The iteration source is the waypoint manager's transmitter set, not
+     * {@code level.players()}: a non-player {@code LivingEntity} whose
+     * {@code WAYPOINT_TRANSMIT_RANGE} was raised above 0 is a transmitter too
+     * (vanilla defaults the attribute to 0, but a command, a datapack or an
+     * equipment modifier can change that), and its connections need the same
+     * re-evaluation. Iterating the player list would leave those connections
+     * on the old filter rules until something happened to break them — which
+     * may never happen for a stationary entity and an AFK viewer, exactly the
+     * case this class exists for.
+     *
+     * <p>The set is copied before iterating: {@code remakeConnections} runs
+     * connection callbacks, and one of them mutating the transmitter set would
+     * otherwise corrupt this loop. Copying also covers the
+     * {@code transmitters().contains} pre-check the player-only version needed
+     * — the set is the exact, already-filtered work list.
      */
-    public static void rebuildForPlayer(MinecraftServer server, String playerName) {
-        ServerPlayer player = server.getPlayerList().getPlayerByName(playerName);
-        if (player == null) {
+    private static void rebuildLevel(ServerLevel level) {
+        for (WaypointTransmitter transmitter
+                : List.copyOf(level.getWaypointManager().transmitters())) {
+            level.getWaypointManager().remakeConnections(transmitter);
+        }
+    }
+
+    /**
+     * Mark the affected member's dimension for a rebuild at the next tick
+     * boundary. Called from {@code ScoreboardMixin} on glow-enabled team
+     * changes while {@code locator_bar_teammates_only} is on.
+     *
+     * <p>Players resolve through the player list. A non-player member (a mob
+     * joined via its UUID string, since {@code Entity.getScoreboardName()} is
+     * the entity UUID) is resolved as a UUID against every dimension's entity
+     * lookup instead of being skipped: it can be a waypoint transmitter in its
+     * own right, so its transmitted connections need the same re-evaluation.
+     * Offline players and names that are neither a player nor a live entity
+     * have nothing to rebuild.
+     */
+    public static void rebuildForMember(MinecraftServer server, String memberName) {
+        ServerPlayer player = server.getPlayerList().getPlayerByName(memberName);
+        if (player != null) {
+            markLevel(player.level());
             return;
         }
-        ServerLevel level = player.level();
+        UUID uuid = parseUuid(memberName);
+        if (uuid == null) {
+            return; // An offline player's name is never a UUID string.
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(uuid) != null) {
+                markLevel(level);
+                return;
+            }
+        }
+    }
+
+    /** {@code null} unless {@code name} is a well-formed UUID string. */
+    private static UUID parseUuid(String name) {
+        try {
+            return UUID.fromString(name);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Queue {@code level} for the next drain, unless the locator bar is off
+     * there — no receiver can have connections, so there is nothing to rebuild.
+     */
+    private static void markLevel(ServerLevel level) {
         if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
             return;
         }
@@ -134,11 +191,7 @@ public final class WaypointSync {
             if (!level.getGameRules().get(GameRules.LOCATOR_BAR)) {
                 continue; // The rule was turned off after the mark — nothing to rebuild.
             }
-            for (ServerPlayer other : level.players()) {
-                if (level.getWaypointManager().transmitters().contains(other)) {
-                    level.getWaypointManager().remakeConnections(other);
-                }
-            }
+            rebuildLevel(level);
         }
         // Out of budget with work still queued. The remaining marks are NOT
         // dropped — they stay pending for the next tick — so this is a

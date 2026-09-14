@@ -59,7 +59,7 @@ Every command is gated by a permission node under `glow-my-teammates.command.*` 
 | Switch | Default | Effect |
 |---|---|---|
 | `non_player_glow` | `false` | Mobs in a glow-enabled team glow for their teammates. Note: every dirty entity-data packet then goes through the mod's per-packet path — keep it off on mob-dense farms unless you actually need it. |
-| `locator_bar_teammates_only` | `false` | A viewer in a glow-enabled team sees only their own teammates on the locator bar; members of other teams and teamless players are hidden. Viewers outside glow-enabled teams see everyone, unchanged. |
+| `locator_bar_teammates_only` | `false` | A viewer in a glow-enabled team sees only their own teammates on the locator bar; members of other teams and anyone teamless are hidden. This covers non-player entities that transmit a waypoint too. Viewers outside glow-enabled teams see everyone, unchanged. |
 
 ## ⚙️ Configuration
 

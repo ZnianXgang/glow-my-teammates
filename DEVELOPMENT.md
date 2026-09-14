@@ -95,11 +95,15 @@ Semantics are **asymmetric and receiver-driven**:
 2. Receiver not in a glow-enabled team (teamless or non-glow) → `original` (sees everyone).
 3. Receiver in a glow-enabled team → only same-team members stay visible; every other entity is hidden (`!receiverTeam.equals(myTeam)` → `Optional.empty()`). No separate glow check on `myTeam` needed: equals already implies the same glow-enabled team.
 
-Connection re-evaluation (`WaypointSync`, all methods server-thread only):
-- **Filter rules changed** (switch toggles, `team add/remove`, `toggle`): `WaypointSync.rebuildAll` — every player-transmitted connection in every dimension.
-- **Team membership changed** while the switch is on: `ScoreboardMixin` → `WaypointSync.rebuildForPlayer` per affected player. Required because the filter is **receiver-driven** — vanilla's own rebuilds only cover the changed player as a *sender*. `rebuildForPlayer` only marks the dimension; the rebuild runs once per tick at the boundary (`END_SERVER_TICK` → `flushPendingRebuilds`), which collapses bursts and guarantees the pass sees the *final* team state. Pending set cleared on `SERVER_STOPPING`.
+Non-player entities take the same path. Any `LivingEntity` with `WAYPOINT_TRANSMIT_RANGE > 0` is a transmitter — the attribute defaults to 0 and only `Player.createAttributes` raises it (6e7), so a non-player one must be set by a command, datapack or equipment modifier — and an entity's team membership is keyed by its UUID string (`Entity.getScoreboardName()`), i.e. `/team join <team> <entity selector>`. `non_player_glow` is unrelated: it controls the glow outline, not the locator bar.
 
-The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(player)` — the same call vanilla's `updateTeamWaypoints` makes. No Stonecutter gates: the interface is identical in 26.1/26.2/26.3.
+Connection re-evaluation (`WaypointSync`, all methods server-thread only):
+- **Filter rules changed** (switch toggles, `team add/remove`, `toggle`): `WaypointSync.rebuildAll` — every transmitted connection in every dimension.
+- **Team membership changed** while the switch is on: `ScoreboardMixin` → `WaypointSync.rebuildForMember` per affected member (a player name or an entity-UUID string). Required because the filter is **receiver-driven** — vanilla's own rebuilds only cover the changed player as a *sender*. `rebuildForMember` only marks the dimension; the rebuild runs once per tick at the boundary (`END_SERVER_TICK` → `flushPendingRebuilds`), which collapses bursts and guarantees the pass sees the *final* team state. Pending set cleared on `SERVER_STOPPING`.
+
+Both paths iterate a copy of `level.getWaypointManager().transmitters()`, **not** `level.players()`. A non-player transmitter's connections are never rebuilt by vanilla — `updateTeamWaypoints` and `updatePlayerWaypoint` resolve members through `PlayerList.getPlayerByName`, which returns `null` for an entity UUID — so they would keep the old filter rules until a connection happened to break, which a stationary entity and an AFK viewer may never cause.
+
+The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(transmitter)` — the same call vanilla's `updateTeamWaypoints` makes. No Stonecutter gates: the interface is identical in 26.1/26.2/26.3.
 
 ## 6. Commands & permissions (`GlowCommand`)
 

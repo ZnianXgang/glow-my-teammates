@@ -21,9 +21,9 @@ import java.util.Collections;
  * {@code smartForcePacket} can detect when a
  * <em>viewer</em> (not the entity itself) changed teams and force a
  * glow-state resync. When {@code locator_bar_teammates_only} is on, the same
- * change rebuilds the affected players' locator-bar connections — see
- * {@link WaypointSync#rebuildForPlayer} for why the receiver side needs
- * this (vanilla only rebuilds the sender side).
+ * change rebuilds the affected members' locator-bar connections — see
+ * {@link WaypointSync#rebuildForMember} for why the receiver side needs
+ * this (vanilla only rebuilds the sender side, and only for players).
  */
 @Mixin(Scoreboard.class)
 public abstract class ScoreboardMixin {
@@ -32,7 +32,7 @@ public abstract class ScoreboardMixin {
      * Bump the sync epoch only for glow-enabled team changes — membership
      * churn in other teams cannot affect any glow display (auto-team plugins
      * churn constantly). With the locator-bar filter on, the same change
-     * marks the affected players' dimension for a deferred waypoint rebuild
+     * marks the affected members' dimensions for a deferred waypoint rebuild
      * at the tick boundary (an inline rebuild would evaluate a team switcher
      * mid-transition as teamless).
      *
@@ -59,8 +59,8 @@ public abstract class ScoreboardMixin {
         }
         config.bumpSyncEpoch();
         if (config.isLocatorBarTeammatesOnly()) {
-            for (String player : affectedPlayers) {
-                WaypointSync.rebuildForPlayer(server, player);
+            for (String member : affectedPlayers) {
+                WaypointSync.rebuildForMember(server, member);
             }
         }
     }
