@@ -4,7 +4,11 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.2.1] - 2026-09-16
+
+### Breaking Changes
+
+- Minimum Fabric API for Minecraft 26.3 is now `0.160.5+26.3` (was `0.160.3+26.3`), and the 26.3 build now targets the final release instead of `26.3-rc-3`.
 
 ### Fixed
 
