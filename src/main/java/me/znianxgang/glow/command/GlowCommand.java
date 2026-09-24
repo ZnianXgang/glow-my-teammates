@@ -1,9 +1,9 @@
-package me.znianxgang.command;
+package me.znianxgang.glow.command;
 
-import me.znianxgang.GlowConstants;
-import me.znianxgang.WaypointSync;
-import me.znianxgang.config.GlowConfigManager;
-import me.znianxgang.mixin.EntityAccessor;
+import me.znianxgang.glow.GlowConstants;
+import me.znianxgang.glow.WaypointSync;
+import me.znianxgang.glow.config.GlowConfigManager;
+import me.znianxgang.glow.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;

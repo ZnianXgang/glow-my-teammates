@@ -1,7 +1,7 @@
-package me.znianxgang.mixin;
+package me.znianxgang.glow.mixin;
 
-import me.znianxgang.GlowConstants;
-import me.znianxgang.config.GlowConfigManager;
+import me.znianxgang.glow.GlowConstants;
+import me.znianxgang.glow.config.GlowConfigManager;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;

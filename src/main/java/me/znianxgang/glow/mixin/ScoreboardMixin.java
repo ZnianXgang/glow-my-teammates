@@ -1,7 +1,7 @@
-package me.znianxgang.mixin;
+package me.znianxgang.glow.mixin;
 
-import me.znianxgang.WaypointSync;
-import me.znianxgang.config.GlowConfigManager;
+import me.znianxgang.glow.WaypointSync;
+import me.znianxgang.glow.config.GlowConfigManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;

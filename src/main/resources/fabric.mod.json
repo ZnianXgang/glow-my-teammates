@@ -15,7 +15,7 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"me.znianxgang.GlowMyTeammates"
+			"me.znianxgang.glow.GlowMyTeammates"
 		]
 	},
 	"mixins": [

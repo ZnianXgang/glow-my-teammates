@@ -1,4 +1,4 @@
-package me.znianxgang;
+package me.znianxgang.glow;
 
 /**
  * Shared glow flag constants.

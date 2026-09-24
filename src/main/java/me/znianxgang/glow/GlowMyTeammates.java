@@ -1,7 +1,7 @@
-package me.znianxgang;
+package me.znianxgang.glow;
 
-import me.znianxgang.command.GlowCommand;
-import me.znianxgang.config.GlowConfigManager;
+import me.znianxgang.glow.command.GlowCommand;
+import me.znianxgang.glow.config.GlowConfigManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;

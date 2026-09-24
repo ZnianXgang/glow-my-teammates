@@ -1,4 +1,4 @@
-package me.znianxgang;
+package me.znianxgang.glow;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;

@@ -1,11 +1,11 @@
-package me.znianxgang.config;
+package me.znianxgang.glow.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import me.znianxgang.GlowMyTeammates;
+import me.znianxgang.glow.GlowMyTeammates;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 
