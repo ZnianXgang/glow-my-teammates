@@ -1,7 +1,7 @@
-package com.glow.teammates.mixin;
+package me.znianxgang.mixin;
 
-import com.glow.teammates.GlowConstants;
-import com.glow.teammates.config.GlowConfigManager;
+import me.znianxgang.GlowConstants;
+import me.znianxgang.config.GlowConfigManager;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;

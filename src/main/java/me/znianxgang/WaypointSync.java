@@ -1,4 +1,4 @@
-package com.glow.teammates;
+package me.znianxgang;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;

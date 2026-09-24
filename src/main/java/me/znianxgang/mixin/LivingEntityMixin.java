@@ -1,6 +1,6 @@
-package com.glow.teammates.mixin;
+package me.znianxgang.mixin;
 
-import com.glow.teammates.config.GlowConfigManager;
+import me.znianxgang.config.GlowConfigManager;
 import com.llamalad7.mixinextras.injector.ModifyReturnValue;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;

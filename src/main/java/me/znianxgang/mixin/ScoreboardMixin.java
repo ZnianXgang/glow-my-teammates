@@ -1,7 +1,7 @@
-package com.glow.teammates.mixin;
+package me.znianxgang.mixin;
 
-import com.glow.teammates.WaypointSync;
-import com.glow.teammates.config.GlowConfigManager;
+import me.znianxgang.WaypointSync;
+import me.znianxgang.config.GlowConfigManager;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;

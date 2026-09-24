@@ -1,4 +1,4 @@
-package com.glow.teammates;
+package me.znianxgang;
 
 /**
  * Shared glow flag constants.

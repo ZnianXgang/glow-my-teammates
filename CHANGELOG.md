@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- The Java package moved from `com.glow.teammates` to `me.znianxgang`, and the Maven group with it. Server owners see no difference — commands, permission nodes, config layout and the `glow-my-teammates.json` file are all unchanged — but a third-party Mixin config or plugin build that referenced the old package by name needs updating.
+
 ## [1.2.1] - 2026-09-16
 
 ### Changed

@@ -1,7 +1,7 @@
-package com.glow.teammates;
+package me.znianxgang;
 
-import com.glow.teammates.command.GlowCommand;
-import com.glow.teammates.config.GlowConfigManager;
+import me.znianxgang.command.GlowCommand;
+import me.znianxgang.config.GlowConfigManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;

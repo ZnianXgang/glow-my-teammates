@@ -1,9 +1,9 @@
-package com.glow.teammates.command;
+package me.znianxgang.command;
 
-import com.glow.teammates.GlowConstants;
-import com.glow.teammates.WaypointSync;
-import com.glow.teammates.config.GlowConfigManager;
-import com.glow.teammates.mixin.EntityAccessor;
+import me.znianxgang.GlowConstants;
+import me.znianxgang.WaypointSync;
+import me.znianxgang.config.GlowConfigManager;
+import me.znianxgang.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;

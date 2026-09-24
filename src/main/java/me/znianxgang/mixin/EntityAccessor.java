@@ -1,4 +1,4 @@
-package com.glow.teammates.mixin;
+package me.znianxgang.mixin;
 
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.world.entity.Entity;
