@@ -32,11 +32,6 @@ bin/
 
 run/
 
-# code intelligence & opencode
-
-.codegraph/
-.omo/
-
 # java
 
 hs_err_*.log
