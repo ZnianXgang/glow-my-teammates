@@ -19,16 +19,12 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
- * Process-wide holder of the mod's runtime state and its per-world JSON
- * persistence.
+ * Process-wide runtime state and its per-world JSON persistence.
  *
- * <p><strong>Threading:</strong> all mutable state is owned by the server
- * thread (commands, ServerEntity ticks, Scoreboard events) and must only be
- * written from it; reading live state from async contexts is unsupported.
- * {@link #getEnabledTeams()} returns a defensive snapshot, but that copy is
- * taken on the server thread: it protects async <em>iteration</em> from a
- * mutation only if the caller snapshotting it is itself on the server thread
- * (or otherwise externally synchronized). It is not a thread-safe accessor.
+ * <p>All mutable state is owned by the server thread (commands, entity ticks,
+ * scoreboard hooks) and must only be written from it. {@link #getEnabledTeams()}
+ * returns a snapshot, but taking that snapshot is itself a read of a
+ * server-thread-owned collection: this is not a thread-safe accessor.
  */
 public class GlowConfigManager {
     private static final Gson GSON = new GsonBuilder()
@@ -38,12 +34,7 @@ public class GlowConfigManager {
     private static final String FILENAME = "glow-my-teammates.json";
     private static final GlowConfigManager INSTANCE = new GlowConfigManager();
 
-    /**
-     * Feature-switch defaults — the single source of truth for {@code config
-     * reset} and every load/repair path that falls back to defaults. Exposed
-     * so {@code GlowCommand}'s switch table can carry the reset value without
-     * duplicating the literal.
-     */
+    /** Switch defaults: single source of truth for {@code config reset} and every fallback path. */
     public static final boolean DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY = false;
     public static final boolean DEFAULT_NON_PLAYER_GLOW = false;
 
@@ -53,46 +44,27 @@ public class GlowConfigManager {
 
     /**
      * The running server, set by {@link #loadFromWorld} and cleared on
-     * {@code SERVER_STOPPING}. Lets server-thread hooks reach the player list
-     * without {@code Entity.getServer()} (removed in 26.1+). May be
-     * {@code null} on the client or before the first world load. Volatile:
-     * {@code ScoreboardMixin} reads it from the client thread in
-     * singleplayer/LAN (DEVELOPMENT.md §8.6).
+     * {@code SERVER_STOPPING}. Volatile because the scoreboard hook consults it
+     * from the client thread in singleplayer/LAN.
      */
     private volatile MinecraftServer server;
 
-    /**
-     * Monotonically increasing counter bumped on every state change — the
-     * mixin uses it to detect when a full resync is needed.
-     */
+    /** Bumped on every state change; the mixin uses it to invalidate cached glow state. */
     private long version;
 
-    /**
-     * Bumped on every team membership change; lets the mixin detect
-     * viewer-side team changes and force a glow resync for affected viewers.
-     */
+    /** Bumped on every membership change in a glow team; invalidates viewer-side caches. */
     private long syncEpoch;
 
-    /**
-     * Whether a viewer in a glow-enabled team sees only their own teammates
-     * on the locator bar. Default {@code false}.
-     */
+    /** A viewer in a glow-enabled team sees only their own team on the locator bar. */
     private boolean locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
 
-    /**
-     * Whether non-player entities (mobs) are eligible for team glow. Default
-     * {@code false} — once enabled, mob-dense farms pay per-dirty-packet
-     * overhead in {@code ServerEntityMixin#redirectSendData}.
-     */
+    /** Non-player entities are eligible for team glow. Off: mob farms would pay for it. */
     private boolean nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
 
     /**
-     * Set when a config file existed but could not be <em>read</em> (locked,
-     * permission denied, unreadable disk). The session then runs on defaults
-     * while a perfectly valid file may still be sitting on disk, so every
-     * {@link #save()} is refused until the file is readable again — otherwise
-     * the first admin command would overwrite that file with defaults and
-     * destroy the very data this guard exists to protect.
+     * The file existed but could not be read. The session runs on defaults, and
+     * saving must stay blocked — otherwise the first command would overwrite a
+     * file that may still be perfectly valid.
      */
     private boolean configReadFailed;
 
@@ -100,56 +72,42 @@ public class GlowConfigManager {
         return INSTANCE;
     }
 
-    /**
-     * Load config from the world save directory. Called when the server starts.
-     */
+    /** Load from the world directory. Also the only place that sets {@code configPath}. */
     public void loadFromWorld(MinecraftServer server) {
         this.server = server;
-        // LevelResource.ROOT resolves to a "." element (./world/.), so the
-        // bare resolve would log a redundant separator — normalize it (the
-        // normalized path targets the same file; only the log text changes).
+        // LevelResource.ROOT resolves to a "." element, which would show up as a
+        // duplicate separator in the logged path.
         Path worldPath = server.getWorldPath(LevelResource.ROOT);
         this.configPath = worldPath.resolve(FILENAME).normalize();
         File file = configPath.toFile();
 
-        // Start every load from defaults, so a previous world's state can never
-        // leak into this one — neither when a file is missing and about to be
-        // created, nor when one exists but cannot be read. Bump version so
-        // entities that cached the old state force a resync.
+        // Start from defaults so a previous world's state cannot leak in, and
+        // bump version so entities that cached the old state resync.
         resetToDefaults();
 
-        // Nothing in this process has saved yet, so any temp file left next to
-        // the config is an orphan from a previous run that died mid-write
-        // (SIGKILL, power loss) — that path never reaches save()'s finally
-        // block, and save() overwrites the name on its next write anyway. Drop
-        // it here once so it cannot linger in the world directory forever.
+        // Nothing has saved in this process yet, so any temp file next to the
+        // config is an orphan from a run that died mid-write.
         clearOrphanedTempFile();
 
         if (file.exists()) {
             String rawJson;
             try {
-                // Split from the parse step on purpose: only a file we could
-                // not even read has contents worth protecting. A parse failure
-                // is real corruption, which is repaired below.
+                // Read and parse are split on purpose: only a file we could not
+                // read has contents worth protecting, while a parse failure is
+                // real corruption and gets repaired below.
                 rawJson = Files.readString(file.toPath(), StandardCharsets.UTF_8);
             } catch (IOException e) {
                 recordReadFailure(e);
                 return;
             } catch (SecurityException e) {
-                // Same treatment as an I/O failure: the file's contents were
-                // never seen, so they are not ours to overwrite. Unreachable
-                // without a SecurityManager, kept so no read failure can escape
-                // the load and skip the write guard.
                 recordReadFailure(e);
                 return;
             }
             try {
                 applyLoadedConfig(rawJson);
             } catch (RuntimeException e) {
-                // Malformed JSON, a wrong value type, or a schema-invalid
-                // array: the file is genuinely unusable, so repair it in place
-                // (defaults in memory, defaults on disk) instead of reporting
-                // the same error on every future start.
+                // Unparseable or schema-invalid content: repair in place rather
+                // than re-report the same error on every start.
                 GlowMyTeammates.LOGGER.error(
                         "Config file {} is corrupt, resetting it to defaults", configPath, e);
                 resetToDefaultsAndPersist();
@@ -166,11 +124,8 @@ public class GlowConfigManager {
     }
 
     /**
-     * Best-effort removal of a {@code .tmp} file orphaned by a previous run
-     * that died between creating it and moving it into place. Called once at
-     * startup, before this process has written anything, so the file cannot
-     * belong to a live write. Never fails the load: a temp file we cannot
-     * delete is a cosmetic leftover, not a reason to run without config.
+     * Best-effort removal of a {@code .tmp} file orphaned by an interrupted
+     * save. Never fails the load: a leftover file we cannot delete is cosmetic.
      */
     private void clearOrphanedTempFile() {
         try {
@@ -184,20 +139,15 @@ public class GlowConfigManager {
         }
     }
 
-    /**
-     * The sibling {@code .tmp} path that {@link #save()} writes and then moves
-     * into place. Single definition so the save and cleanup paths cannot drift
-     * apart. Only valid once {@link #loadFromWorld} has set {@code configPath}.
-     */
+    /** Single definition so the save and cleanup paths cannot drift apart. */
     private Path tempPath() {
         return configPath.resolveSibling(configPath.getFileName() + ".tmp");
     }
 
     /**
-     * The state-resetting part of a load: everything shared by the "no file
-     * yet" and "file unreadable" paths. Bumps {@code version} so entities that
-     * cached the previous world's state force a resync, which also replaces
-     * the single {@code version++} the old single-path loader did at its end.
+     * State reset shared by the "no file yet" and "file unreadable" paths. Its
+     * {@code version} bump covers the whole load, which is why no later step in
+     * the load sequence bumps again.
      */
     private void resetToDefaults() {
         this.enabled = true;
@@ -209,11 +159,8 @@ public class GlowConfigManager {
     }
 
     /**
-     * A config file exists but could not be read. Keep defaults in memory,
-     * leave the file exactly as it is, and (via {@code configReadFailed})
-     * refuse to write over it for the rest of the session: at this point a
-     * transient I/O failure is indistinguishable from corruption, and a
-     * rewrite would destroy a valid team list.
+     * A transient I/O failure is indistinguishable from corruption, so the file
+     * is left untouched and every later {@link #save()} is refused.
      */
     private void recordReadFailure(Exception e) {
         this.configReadFailed = true;
@@ -225,16 +172,14 @@ public class GlowConfigManager {
     }
 
     /**
-     * Parse raw config text, adopt it as live state, run schema migration and
-     * persist a repair when the file is legacy. Throws on unparseable content;
-     * the caller repairs the file.
+     * Adopt the parsed config as live state and run schema migration, rewriting
+     * the file when it is legacy. Throws on unusable content; the caller
+     * repairs the file.
      */
     private void applyLoadedConfig(String rawJson) {
         ConfigData data = GSON.fromJson(rawJson, ConfigData.class);
         if (data == null) {
-            // Empty, whitespace-only, or the literal JSON "null" (Gson returns
-            // null without throwing) — treat it like a corrupt file: reset to
-            // defaults, persist the repair, invalidate caches.
+            // Empty, whitespace-only, or a literal JSON null.
             GlowMyTeammates.LOGGER.warn(
                     "Config file is empty or literal null, resetting to defaults");
             resetToDefaultsAndPersist();
@@ -244,9 +189,7 @@ public class GlowConfigManager {
         this.enabledTeams.clear();
         if (data.teams != null) {
             for (String team : data.teams) {
-                // Skip null and empty names — an empty string can never match
-                // a real team and would otherwise be persisted back on the
-                // next save.
+                // An empty name can never match a real team and would be saved back.
                 if (team != null && !team.isEmpty()) {
                     this.enabledTeams.add(team);
                 }
@@ -256,25 +199,17 @@ public class GlowConfigManager {
             this.locatorBarTeammatesOnly = data.config.locatorBarTeammatesOnly;
             this.nonPlayerGlow = data.config.nonPlayerGlow;
         } else {
-            // Legacy config (no `config` sub-object): explicitly reset to
-            // defaults — never inherit a previous world's switch state from
-            // the process-wide singleton.
+            // Legacy config: reset the switches instead of inheriting the
+            // previous world's values from the process-wide singleton.
             this.locatorBarTeammatesOnly = DEFAULT_LOCATOR_BAR_TEAMMATES_ONLY;
             this.nonPlayerGlow = DEFAULT_NON_PLAYER_GLOW;
         }
-        // Schema migration: a missing version array (legacy, major 0), the
-        // pre-1.1.1 key rename, or a literal-null `config` sub-object all
-        // rewrite the file with the current schema. No ordering constraint
-        // against version++ here — loadFromWorld's opening resetToDefaults()
-        // already bumped the counter for this whole load, so the migration
-        // write is covered by that bump regardless of when it lands.
+        // A missing version array (legacy), the pre-1.1.1 key rename, or a
+        // literal-null `config` all rewrite the file with the current schema.
         int major = (data.configVersion == null || data.configVersion.length == 0)
                 ? 0 : data.configVersion[0];
-        // A NEWER major is not legacy and not ours to understand: the arrays we
-        // get from an unknown schema may mean something else entirely, and the
-        // save below would silently rewrite the file as [1, 1]. This only
-        // happens if a file was written by a future release and then downgraded
-        // (or edited by hand), so warn and leave what we cannot migrate alone.
+        // A NEWER major is not something this build understands; saving would
+        // silently rewrite it as [1, 1], so leave it alone but say so.
         if (major > 1) {
             GlowMyTeammates.LOGGER.warn(
                     "Config file {} declares schema version {} but this build understands "
@@ -292,10 +227,9 @@ public class GlowConfigManager {
     }
 
     /**
-     * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams} to
-     * {@code locatorBarTeammatesOnly}. Gson silently ignores unknown keys, so
-     * the old key is inspected on the raw JSON text. Returns whether the file
-     * needs a rewrite to drop the old key.
+     * Migrate the pre-1.1.1 key {@code locatorBarHideOtherGlowingTeams}. Gson
+     * ignores unknown keys, so the old key is read from the raw JSON text.
+     * Returns whether the file needs a rewrite.
      */
     private boolean migrateLocatorBarSwitchName(String rawJson) {
         try {
@@ -316,8 +250,7 @@ public class GlowConfigManager {
                     oldValue);
             return true;
         } catch (Exception e) {
-            // A malformed config is handled by the caller's fallback; here we
-            // only fail the migration, not the whole load.
+            // Only the migration fails here; the caller handles a malformed file.
             GlowMyTeammates.LOGGER.warn(
                     "Failed to inspect config for locator-bar switch migration", e);
             return false;
@@ -325,15 +258,10 @@ public class GlowConfigManager {
     }
 
     /**
-     * Persist the already-reset default state, so a corrupt or empty/literal-null
-     * config file is repaired instead of re-reporting the error on every start.
-     *
-     * <p>Does <em>not</em> bump {@code version}: the state reset it writes out
-     * is {@link #resetToDefaults()}'s doing, and that call already bumped the
-     * counter as part of the load sequence. Both call sites are inside
-     * {@code loadFromWorld} after it, so the "entities that cached the old
-     * state must resync" semantics are already satisfied — bumping here would
-     * only double-count.
+     * Persist the already-reset default state, repairing a corrupt or empty
+     * file instead of re-reporting it on every start. Deliberately does not
+     * bump {@code version}: {@link #resetToDefaults()} already did, and both
+     * call sites run after it.
      */
     private void resetToDefaultsAndPersist() {
         this.enabled = true;
@@ -344,11 +272,8 @@ public class GlowConfigManager {
     }
 
     /**
-     * Save current config to file.
-     *
-     * @return {@code true} if the config was persisted successfully,
-     *         {@code false} if the file could not be written (logged) or the
-     *         session is blocked from writing because the load failed.
+     * @return {@code true} when the config was persisted; {@code false} when
+     *         the write failed or this session is blocked from writing.
      */
     public boolean save() {
         if (configPath == null) {
@@ -356,10 +281,8 @@ public class GlowConfigManager {
             return false;
         }
         if (configReadFailed) {
-            // Refuse to overwrite a file we could not read: the in-memory state
-            // is defaults, not what the file holds, so writing it would turn a
-            // transient read failure into permanent data loss. Commands surface
-            // this as a failed-save message and roll their change back.
+            // The in-memory state is defaults, not what the file holds — writing
+            // it would turn a transient read failure into data loss.
             GlowMyTeammates.LOGGER.warn(
                     "Cannot save config to {}: it could not be read at startup, so this session "
                             + "will not overwrite it. Fix the file and restart the server.",
@@ -386,8 +309,8 @@ public class GlowConfigManager {
             GlowMyTeammates.LOGGER.error("Failed to save config", e);
             return false;
         } finally {
-            // Best-effort cleanup: a failed save may leave the temp file behind
-            // (a successful save already moved it away, so this is a no-op).
+            // A successful save already moved the file away, so this only
+            // cleans up after a failure.
             try {
                 Files.deleteIfExists(tmpPath);
             } catch (IOException ignored) {
@@ -398,12 +321,9 @@ public class GlowConfigManager {
 
     /**
      * Replace {@code target} with {@code tmpPath}, preferring an atomic move.
-     *
-     * <p>ATOMIC_MOVE is not supported on every filesystem, and on Windows
-     * replacing an <em>existing</em> file can throw {@link AccessDeniedException}
-     * rather than {@link AtomicMoveNotSupportedException}. Either way we
-     * downgrade to a plain {@code REPLACE_EXISTING} move, retrying briefly in
-     * case the target is transiently locked (antivirus, cloud sync).
+     * On Windows replacing an existing file can throw {@link AccessDeniedException}
+     * instead of {@link AtomicMoveNotSupportedException}, so both fall back to
+     * a plain move with a short retry for transient locks (antivirus, sync).
      */
     private static void moveIntoPlace(Path tmpPath, Path target) throws IOException {
         try {
@@ -436,11 +356,7 @@ public class GlowConfigManager {
         return enabled;
     }
 
-    /**
-     * The running server, or {@code null} on the client / before the first
-     * world load / after {@link #clearServer()}. Server-thread only, like
-     * every other getter.
-     */
+    /** The running server, or {@code null} on the client / outside a world. */
     public MinecraftServer getServer() {
         return server;
     }
@@ -449,12 +365,7 @@ public class GlowConfigManager {
         this.server = null;
     }
 
-    /**
-     * Whether any team currently has glow enabled. Zero-allocation fast path
-     * (unlike {@link #getEnabledTeams()}, which builds a defensive snapshot)
-     * used by the per-packet redirect path to skip lookups when no team is
-     * configured.
-     */
+    /** Zero-allocation fast path used by the per-packet redirect when no team is configured. */
     public boolean hasEnabledTeams() {
         return !enabledTeams.isEmpty();
     }
@@ -472,9 +383,9 @@ public class GlowConfigManager {
     }
 
     /**
-     * Call when a player joins or leaves any team, so the mixin can force a
-     * glow-state resync for all viewers of glowing entities. Intentionally
-     * global — see DEVELOPMENT.md §9.1 before "optimizing" to per-team granularity.
+     * Call on any membership change in a glow team so viewers resync. Global on
+     * purpose: the teammate predicate is evaluated against the <em>viewer's</em>
+     * team, so per-team granularity would be a correctness liability.
      */
     public void bumpSyncEpoch() {
         this.syncEpoch++;
@@ -488,11 +399,7 @@ public class GlowConfigManager {
         return enabledTeams.contains(teamName);
     }
 
-    /**
-     * Deliberately <em>not</em> idempotent (unlike the other setters): the
-     * caller must guard against already-enabled teams before calling, which
-     * {@code GlowCommand#addTeam} does (DEVELOPMENT.md §4.2).
-     */
+    /** Not idempotent: callers must reject an already-enabled team first. */
     public void addTeam(String teamName) {
         enabledTeams.add(teamName);
         this.version++;
@@ -508,11 +415,7 @@ public class GlowConfigManager {
         return locatorBarTeammatesOnly;
     }
 
-    /**
-     * Whether a viewer in a glow-enabled team sees only their own teammates
-     * on the locator bar. Idempotent — no-op when the value is unchanged, to
-     * avoid a spurious version bump and the resulting full-server resync.
-     */
+    /** Idempotent — an unchanged value must not bump {@code version}. */
     public void setLocatorBarTeammatesOnly(boolean locatorBarTeammatesOnly) {
         if (this.locatorBarTeammatesOnly == locatorBarTeammatesOnly) {
             return;
@@ -525,10 +428,7 @@ public class GlowConfigManager {
         return nonPlayerGlow;
     }
 
-    /**
-     * Whether non-player entities are eligible for team glow. Idempotent —
-     * no-op when the value is unchanged.
-     */
+    /** Idempotent — an unchanged value must not bump {@code version}. */
     public void setNonPlayerGlow(boolean nonPlayerGlow) {
         if (this.nonPlayerGlow == nonPlayerGlow) {
             return;
@@ -537,11 +437,8 @@ public class GlowConfigManager {
         this.version++;
     }
 
+    /** Snapshot, not a live view: the caller may iterate it while the set changes. */
     public Set<String> getEnabledTeams() {
-        // Snapshot, not a live view — protects a caller that iterates the result
-        // from a concurrent mutation of the server-thread-owned set. Callers
-        // that are not on the server thread must still synchronize externally:
-        // taking this copy is itself a read of a non-thread-safe collection.
         return Collections.unmodifiableSet(new LinkedHashSet<>(enabledTeams));
     }
 
@@ -549,15 +446,9 @@ public class GlowConfigManager {
     public static class ConfigData {
         boolean enabled = true;
         List<String> teams = new ArrayList<>();
-        /**
-         * Disk schema version {@code [major, minor]}. {@code null} means the
-         * file predates schema versioning (legacy) — the loader migrates it.
-         */
+        /** Disk schema version; {@code null} means a legacy file, migrated on load. */
         int[] configVersion;
-        /**
-         * Feature switches. {@code null} means legacy config — the loader
-         * falls back to defaults and rewrites the file with the current schema.
-         */
+        /** Feature switches; {@code null} means a legacy file, rewritten on load. */
         ConfigSubData config;
 
         ConfigData() {}

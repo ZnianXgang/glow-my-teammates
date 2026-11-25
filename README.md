@@ -19,10 +19,12 @@ Members of an enabled team see their teammates outlined in a bright glow, from a
 
 ## 📦 Requirements
 
-| | Minecraft 26.1.x | Minecraft 26.2 | Minecraft 26.3 |
-|---|---|---|---|
-| Fabric Loader | ≥ 0.20.1 | ≥ 0.20.1 | ≥ 0.20.1 |
-| Fabric API | ≥ 0.155.3+26.1.2 | ≥ 0.157.0+26.2 | ≥ 0.160.5+26.3 |
+| | Minecraft 26.1.x | Minecraft 26.2 | Minecraft 26.3 | Minecraft 26.4¹ |
+|---|---|---|---|---|
+| Fabric Loader | ≥ 0.20.1 | ≥ 0.20.1 | ≥ 0.20.1 | ≥ 0.20.1 |
+| Fabric API | ≥ 0.155.3+26.1.2 | ≥ 0.157.0+26.2 | ≥ 0.160.5+26.3 | ≥ 0.167.1+26.4 |
+
+¹ The 26.4 build currently targets the 26.4 pre-release series (`26.4-pre-1` and later). It is re-checked against the final 26.4 release before anything is published for it.
 
 Install like any Fabric mod: drop the jar into the server's `mods/` folder. **Server-side only** — players with vanilla clients can connect without installing anything. Command feedback is translated server-side (English & Simplified Chinese).
 

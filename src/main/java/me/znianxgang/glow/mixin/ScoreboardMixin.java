@@ -17,33 +17,25 @@ import java.util.Collection;
 import java.util.Collections;
 
 /**
- * Hooks into Scoreboard team membership changes so that
- * {@code smartForcePacket} can detect when a
- * <em>viewer</em> (not the entity itself) changed teams and force a
- * glow-state resync. When {@code locator_bar_teammates_only} is on, the same
- * change rebuilds the affected members' locator-bar connections — see
- * {@link WaypointSync#rebuildForMember} for why the receiver side needs
- * this (vanilla only rebuilds the sender side, and only for players).
+ * Team-membership hooks: bump the viewer-side resync counter for glow-enabled
+ * teams, and rebuild the affected members' locator-bar connections while the
+ * filter is on.
  */
 @Mixin(Scoreboard.class)
 public abstract class ScoreboardMixin {
 
     /**
-     * Bump the sync epoch only for glow-enabled team changes — membership
-     * churn in other teams cannot affect any glow display (auto-team plugins
-     * churn constantly). With the locator-bar filter on, the same change
-     * marks the affected members' dimensions for a deferred waypoint rebuild
-     * at the tick boundary (an inline rebuild would evaluate a team switcher
-     * mid-transition as teamless).
+     * Membership churn in non-glow teams cannot change any glow display, so it
+     * is ignored — auto-team plugins would otherwise resync the whole server
+     * constantly. A team change is deferred to the tick boundary because
+     * {@code addPlayerToTeam} removes-then-adds within one tick.
      *
-     * <p><strong>Client-scoreboard guard:</strong> in singleplayer/LAN the
-     * client thread mutates the <em>client</em> scoreboard while processing
-     * team packets — acting on those calls would bump {@code syncEpoch} and
-     * write to {@code WaypointSync}'s pending set off the server thread, a
-     * data race that can corrupt the set and crash or hang the tick loop.
-     * The server broadcasts team packets only <em>after</em> mutating its
-     * own scoreboard (which fires this hook on the server thread first), so
-     * ignoring every other scoreboard loses nothing.
+     * <p>In singleplayer/LAN the client thread mutates the <em>client</em>
+     * scoreboard while handling team packets; ignoring anything that is not the
+     * running server's own scoreboard keeps the shared counters and
+     * {@link WaypointSync}'s pending set on the server thread. The server
+     * mutates its own scoreboard (firing this hook) before broadcasting, so
+     * nothing is lost.
      */
     @Unique
     private static void onTeamChange(Scoreboard scoreboard, PlayerTeam team,
@@ -78,12 +70,9 @@ public abstract class ScoreboardMixin {
 
     /**
      * The single-arg {@code removePlayerFromTeam(String)} is deliberately not
-     * hooked: on success it internally calls this two-arg overload — hooking
-     * both would double-bump. The two-arg overload <em>throws</em>
-     * {@code IllegalStateException} for non-members (it does not no-op), so
-     * the RETURN hook only fires for real removals; a burst of removals inside
-     * one tick still collapses into one resync round ({@code !=} comparison
-     * plus one drain per tick).
+     * hooked: it calls this overload internally, so hooking both would
+     * double-bump. This overload throws for non-members, so RETURN only fires
+     * for real removals.
      */
     @Inject(method = "removePlayerFromTeam(Ljava/lang/String;"
             + "Lnet/minecraft/world/scores/PlayerTeam;)V",
@@ -95,18 +84,10 @@ public abstract class ScoreboardMixin {
     }
 
     /**
-     * Covers {@code /team remove <team>}: {@code removePlayerTeam} clears
-     * {@code teamsByPlayer} directly, bypassing the two hooks above — without
-     * this, the syncEpoch would not bump and already-glowing viewers would
-     * keep the stale bit indefinitely. Vanilla's {@code onTeamRemoved}
-     * rebuilds each member's sender-side connections; the receiver side is
-     * covered here via the whole member list.
-     *
-     * <p><strong>MC-upgrade check:</strong> this assumes {@code removePlayerTeam}
-     * leaves {@code team.getPlayers()} intact (it only clears
-     * {@code teamsByPlayer}). If a future version empties the member set before
-     * returning, this hook silently stops rebuilding receiver-side connections.
-     * The list is copied so {@code onTeamChange} never iterates a live view.
+     * Covers {@code /team remove}: it clears {@code teamsByPlayer} directly and
+     * bypasses the hooks above. Assumes the team's member list is still intact
+     * here (only the reverse index is cleared) — re-check on an MC upgrade, or
+     * this silently stops rebuilding receiver-side connections.
      */
     @Inject(method = "removePlayerTeam(Lnet/minecraft/world/scores/PlayerTeam;)V",
             at = @At("RETURN"))

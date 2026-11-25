@@ -5,10 +5,17 @@ import me.znianxgang.glow.WaypointSync;
 import me.znianxgang.glow.config.GlowConfigManager;
 import me.znianxgang.glow.mixin.EntityAccessor;
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.BoolArgumentType;
+//? if 26.4 {
+import net.minecraft.commands.arguments.BooleanArgument;
+import net.minecraft.commands.arguments.StringArgument;
+import net.minecraft.commands.suggestions.ServerOnlyCustomSuggestion;
+import net.minecraft.commands.suggestions.SuggestLiteralString;
+//?} else {
+/*import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.context.CommandContext;
-import com.mojang.brigadier.suggestion.Suggestions;
+*///?}
+import com.mojang.brigadier.arguments.ArgumentType;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.fabricmc.fabric.api.permission.v1.PermissionPredicates;
 import net.minecraft.ChatFormatting;
@@ -35,7 +42,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -46,15 +52,10 @@ public final class GlowCommand {
 
     /**
      * Permission gates. A group gate sits on the {@code team} / {@code config}
-     * literal, not on its children — Brigadier ANDs a parent's
-     * {@code requires()} into every child, so per-subcommand gates would be
-     * redundant. A group's read commands therefore inherit its write
-     * permission ({@code team list} / {@code config list} / {@code config get}
-     * are OP 2); {@code status} is the only public entry point.
-     *
-     * <p>The bare {@code /teamglow} shortcut checks {@link #STATUS_REQUIREMENT}
-     * inside its executor rather than on the root node, because a root gate
-     * would be ANDed into every subcommand too.
+     * literal because Brigadier ANDs a parent's {@code requires()} into every
+     * child — so {@code team list} / {@code config list} inherit OP 2 too. The
+     * bare {@code /teamglow} checks its own gate in the executor, since a root
+     * gate would apply to every subcommand.
      */
     private static final Predicate<CommandSourceStack> STATUS_REQUIREMENT =
             permission("command.status", PermissionLevel.ALL);
@@ -71,12 +72,7 @@ public final class GlowCommand {
                 Identifier.fromNamespaceAndPath("glow-my-teammates", path), fallback);
     }
 
-    /**
-     * Side effects a config-switch change may trigger beyond persisting the
-     * value. Named constants keep the call sites readable — a raw boolean
-     * pair is easy to transpose and would silently wire the wrong side
-     * effect to a switch.
-     */
+    /** Side effects a switch change may trigger beyond persisting the value. */
     private enum SwitchEffect {
         /** Re-evaluate every locator-bar connection when the switch changes. */
         REBUILD_WAYPOINTS,
@@ -85,10 +81,9 @@ public final class GlowCommand {
     }
 
     /**
-     * One feature switch: its command name, reset value, accessors and side
-     * effect. The command tree, {@code config list} and {@code config reset}
-     * all derive from this table — adding a switch is one constant here and
-     * nothing else (the messages are generic).
+     * One feature switch. The command tree, {@code config list} and
+     * {@code config reset} derive from this table, so adding a switch is one
+     * constant here and nothing else.
      */
     private enum FeatureSwitch {
         LOCATOR_BAR_TEAMMATES_ONLY(
@@ -127,12 +122,7 @@ public final class GlowCommand {
             writer.accept(value);
         }
 
-        /**
-         * Exact-match lookup, or {@code null} for an unknown name (the command
-         * turns that into a failure message). Iterating {@code values()} beats
-         * a static index: no enum-vs-static-field initialization-order trap,
-         * and the table is tiny.
-         */
+        /** Exact match, or {@code null} for an unknown name. */
         static FeatureSwitch byId(String id) {
             for (FeatureSwitch sw : values()) {
                 if (sw.id.equals(id)) {
@@ -162,39 +152,19 @@ public final class GlowCommand {
 
         // /teamglow team add <team>
         teamNode.then(Commands.literal("add")
-                .then(Commands.argument("team", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            // Suggest existing, not-yet-enabled teams narrowed by
-                            // the typed prefix, exactly like vanilla's own team
-                            // argument narrows /team add|remove as you type.
-                            var server = ctx.getSource().getServer();
-                            var enabled = GlowConfigManager.getInstance().getEnabledTeams();
-                            List<String> candidates = new ArrayList<>();
-                            for (var team : server.getScoreboard().getPlayerTeams()) {
-                                if (!enabled.contains(team.getName())) {
-                                    candidates.add(team.getName());
-                                }
-                            }
-                            suggestMatchingTypedPrefix(builder, candidates);
-                            return builder.buildFuture();
-                        })
+                .then(Commands.argument("team", wordArgument())
+                        .suggests(teamAddSuggestions())
                         .executes(ctx -> {
-                            String team = StringArgumentType.getString(ctx, "team");
+                            String team = ctx.getArgument("team", String.class);
                             return addTeam(ctx.getSource(), team);
                         })));
 
         // /teamglow team remove <team>
         teamNode.then(Commands.literal("remove")
-                .then(Commands.argument("team", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            // Suggest only enabled teams narrowed by the typed
-                            // prefix (same behavior as the add subcommand).
-                            suggestMatchingTypedPrefix(builder,
-                                    GlowConfigManager.getInstance().getEnabledTeams());
-                            return builder.buildFuture();
-                        })
+                .then(Commands.argument("team", wordArgument())
+                        .suggests(teamRemoveSuggestions())
                         .executes(ctx -> {
-                            String team = StringArgumentType.getString(ctx, "team");
+                            String team = ctx.getArgument("team", String.class);
                             return removeTeam(ctx.getSource(), team);
                         })));
 
@@ -213,33 +183,31 @@ public final class GlowCommand {
 
         // /teamglow config get <switch>
         configNode.then(Commands.literal("get")
-                .then(Commands.argument("switch", StringArgumentType.word())
-                        .suggests(GlowCommand::suggestSwitches)
+                .then(Commands.argument("switch", wordArgument())
+                        .suggests(switchSuggestions())
                         .executes(ctx -> getConfig(ctx.getSource(),
-                                StringArgumentType.getString(ctx, "switch")))));
+                                ctx.getArgument("switch", String.class)))));
 
         // /teamglow config set <switch> <true|false>
         configNode.then(Commands.literal("set")
-                .then(Commands.argument("switch", StringArgumentType.word())
-                        .suggests(GlowCommand::suggestSwitches)
-                        .then(Commands.argument("value", BoolArgumentType.bool())
+                .then(Commands.argument("switch", wordArgument())
+                        .suggests(switchSuggestions())
+                        .then(Commands.argument("value", boolArgument())
                                 .executes(ctx -> setConfig(ctx.getSource(),
-                                        StringArgumentType.getString(ctx, "switch"),
-                                        BoolArgumentType.getBool(ctx, "value"))))));
+                                        ctx.getArgument("switch", String.class),
+                                        ctx.getArgument("value", Boolean.class))))));
 
         // /teamglow config reset <switch>
         configNode.then(Commands.literal("reset")
-                .then(Commands.argument("switch", StringArgumentType.word())
-                        .suggests(GlowCommand::suggestSwitches)
+                .then(Commands.argument("switch", wordArgument())
+                        .suggests(switchSuggestions())
                         .executes(ctx -> resetConfig(ctx.getSource(),
-                                StringArgumentType.getString(ctx, "switch")))));
+                                ctx.getArgument("switch", String.class)))));
 
         root.then(configNode);
 
-        // Default (no argument) → show status. The permission check lives in
-        // the executor (not on the root node) because Brigadier ANDs a parent
-        // node's requires() into every child — a status restriction on the
-        // root would wrongly gate the toggle/team/config subcommands too.
+        // Default (no argument) → show status. The gate lives in the executor:
+        // a gate on the root node would apply to every subcommand.
         root.executes(ctx -> {
             if (!STATUS_REQUIREMENT.test(ctx.getSource())) {
                 ctx.getSource().sendFailure(
@@ -253,13 +221,7 @@ public final class GlowCommand {
         dispatcher.register(root);
     }
 
-    /**
-     * Suggest the {@code candidates} whose name starts with whatever the player
-     * has typed so far. Vanilla narrows its own argument suggestions by that
-     * prefix (case-insensitively), so {@code /teamglow team add/remove} must do
-     * the same or its completion list would stop following the player's input
-     * while vanilla's own team argument keeps narrowing.
-     */
+    /** Narrow {@code candidates} by the typed prefix, like vanilla's own team argument. */
     private static void suggestMatchingTypedPrefix(SuggestionsBuilder builder,
                                                    Iterable<String> candidates) {
         String typed = builder.getRemainingLowerCase();
@@ -268,6 +230,108 @@ public final class GlowCommand {
                 builder.suggest(candidate);
             }
         }
+    }
+
+    // ========== Argument types & suggestions (version-gated) ==========
+    //
+    // 26.4 converts the whole dispatcher through SuggestionBox.fromFullTree
+    // when Commands is constructed, and only accepts serializable nodes: an
+    // argument type must be a SerializableArgument wrapper, a suggestion
+    // provider a CustomSuggestion wrapper. A raw Brigadier type or a bare
+    // lambda aborts Commands.createVanilla with
+    // "UnsupportedOperationException: Invalid argument type: string()", which
+    // kills every world load. The getters are not gated — a wrapper still
+    // stores a plain String/Boolean, so ctx.getArgument works on all versions.
+
+    /** {@code <team>} / {@code <switch>}: a single unquoted word. */
+    private static ArgumentType<String> wordArgument() {
+        //? if 26.4 {
+        return StringArgument.word();
+        //?} else {
+        /*return StringArgumentType.word();
+        *///?}
+    }
+
+    /** {@code <true|false>} for {@code config set}. */
+    private static ArgumentType<Boolean> boolArgument() {
+        //? if 26.4 {
+        return BooleanArgument.bool();
+        //?} else {
+        /*return BoolArgumentType.bool();
+        *///?}
+    }
+
+    /** Teams that are not glow-enabled yet — the {@code team add} candidates. */
+    private static List<String> candidateTeamsToAdd(MinecraftServer server) {
+        Set<String> enabled = GlowConfigManager.getInstance().getEnabledTeams();
+        List<String> candidates = new ArrayList<>();
+        for (PlayerTeam team : server.getScoreboard().getPlayerTeams()) {
+            if (!enabled.contains(team.getName())) {
+                candidates.add(team.getName());
+            }
+        }
+        return candidates;
+    }
+
+    /** Switch ids in declaration order; static, so 26.4 can ship them to the client. */
+    private static String[] featureSwitchIds() {
+        FeatureSwitch[] values = FeatureSwitch.values();
+        String[] ids = new String[values.length];
+        for (int i = 0; i < values.length; i++) {
+            ids[i] = values[i].id;
+        }
+        return ids;
+    }
+
+    /**
+     * The candidates are runtime state, so 26.4 uses a
+     * {@link ServerOnlyCustomSuggestion}: its {@code serializable()} defaults to
+     * {@code AskServer.INSTANCE}, which makes the client ask the server.
+     */
+    private static SuggestionProvider<CommandSourceStack> teamAddSuggestions() {
+        //? if 26.4 {
+        ServerOnlyCustomSuggestion suggestion = (server, ctx, builder) -> {
+            suggestMatchingTypedPrefix(builder, candidateTeamsToAdd(server));
+            return builder.buildFuture();
+        };
+        return suggestion.toBrigadier();
+        //?} else {
+        /*return (ctx, builder) -> {
+            suggestMatchingTypedPrefix(builder,
+                    candidateTeamsToAdd(ctx.getSource().getServer()));
+            return builder.buildFuture();
+        };
+        *///?}
+    }
+
+    /** {@code /teamglow team remove} suggestions — enabled teams only. */
+    private static SuggestionProvider<CommandSourceStack> teamRemoveSuggestions() {
+        //? if 26.4 {
+        ServerOnlyCustomSuggestion suggestion = (server, ctx, builder) -> {
+            suggestMatchingTypedPrefix(builder,
+                    GlowConfigManager.getInstance().getEnabledTeams());
+            return builder.buildFuture();
+        };
+        return suggestion.toBrigadier();
+        //?} else {
+        /*return (ctx, builder) -> {
+            suggestMatchingTypedPrefix(builder,
+                    GlowConfigManager.getInstance().getEnabledTeams());
+            return builder.buildFuture();
+        };
+        *///?}
+    }
+
+    /** The ids never change, so 26.4 serializes them into the command tree. */
+    private static SuggestionProvider<CommandSourceStack> switchSuggestions() {
+        //? if 26.4 {
+        return SuggestLiteralString.suggestLiteral(featureSwitchIds());
+        //?} else {
+        /*return (ctx, builder) -> {
+            suggestMatchingTypedPrefix(builder, List.of(featureSwitchIds()));
+            return builder.buildFuture();
+        };
+        *///?}
     }
 
     private static int setEnabled(CommandSourceStack source, boolean enabled) {
@@ -283,9 +347,8 @@ public final class GlowCommand {
                             .withStyle(ChatFormatting.RED));
             return 0;
         }
-        // The locator-bar filter also keys off isEnabled(), so rebuild the
-        // connections when the mod is turned on or off — the filter must
-        // apply/lift immediately, not on the next team change.
+        // The filter also keys off isEnabled(), so rebuild now — it must
+        // apply or lift immediately, not on the next team change.
         if (waypointsAffected) {
             rebuildWaypointConnections(source.getServer());
         }
@@ -299,10 +362,8 @@ public final class GlowCommand {
     }
 
     /**
-     * Reports the global on/off state and nothing else — team and switch
-     * details live behind {@code team list} / {@code config list} / {@code
-     * config get} (all OP 2), so the public {@code status} node never exposes
-     * them.
+     * Reports the global on/off state only: team and switch details stay behind
+     * the OP 2 commands, so the public node never exposes them.
      */
     private static int showStatus(CommandSourceStack source) {
         boolean enabled = GlowConfigManager.getInstance().isEnabled();
@@ -328,8 +389,8 @@ public final class GlowCommand {
             return 0;
         }
 
-        // getPlayerTeam (teamsByName) checks whether the TEAM exists —
-        // getPlayersTeam (teamsByPlayer) would look up a member by that name.
+        // getPlayerTeam checks whether the TEAM exists; getPlayersTeam would
+        // look up a member by that name.
         boolean exists = source.getServer().getScoreboard()
                 .getPlayerTeam(teamName) != null;
         config.addTeam(teamName);
@@ -341,12 +402,9 @@ public final class GlowCommand {
             return 0;
         }
 
-        // Team glow eligibility feeds the locator-bar filter — rebuild the
-        // waypoint connections so already-established ones are re-evaluated
-        // immediately instead of lingering under the old rules. Skipped while
-        // the mod is off: the filter is inert then (LivingEntityMixin's first
-        // guard passes everything through), and toggling the mod back on
-        // rebuilds via setEnabled anyway.
+        // Eligibility feeds the locator-bar filter, so re-evaluate existing
+        // connections. Skipped while the mod is off: the filter is inert, and
+        // enabling it rebuilds anyway.
         if (config.isEnabled() && config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
@@ -355,8 +413,8 @@ public final class GlowCommand {
                         .withStyle(ChatFormatting.GREEN),
                 true);
         if (!exists) {
-            // Pre-configuring a team that does not exist yet is allowed, but
-            // the admin should know glow only applies once it is created.
+            // Pre-configuring a missing team is allowed; the admin should know
+            // glow only applies once it exists.
             source.sendSuccess(
                     () -> Component.translatable("glow.teammates.team.not_found", teamName)
                             .withStyle(ChatFormatting.GOLD),
@@ -384,10 +442,8 @@ public final class GlowCommand {
             return 0;
         }
 
-        // Same re-evaluation as addTeam: removing a team from the glow config
-        // must let existing (previously filtered) locator-bar connections
-        // appear right away. Skipped while the mod is off — same reasoning as
-        // addTeam.
+        // Same as addTeam: removing a team must let previously filtered
+        // connections reappear immediately.
         if (config.isEnabled() && config.isLocatorBarTeammatesOnly()) {
             rebuildWaypointConnections(source.getServer());
         }
@@ -462,9 +518,8 @@ public final class GlowCommand {
     }
 
     /**
-     * The single exit for switch mutations: apply, persist, roll back on a
-     * failed save, then run the switch's side effect. {@code set} and {@code
-     * reset} differ only in the value and the message key.
+     * Single exit for switch mutations: apply, persist, roll back on a failed
+     * save, then run the switch's side effect.
      */
     private static int applySwitch(CommandSourceStack source, FeatureSwitch sw,
                                    boolean value, String messageKey) {
@@ -501,45 +556,22 @@ public final class GlowCommand {
         return 0;
     }
 
-    /** Suggests every switch name, narrowed by the typed prefix (like teams). */
-    private static CompletableFuture<Suggestions> suggestSwitches(
-            CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
-        List<String> ids = new ArrayList<>();
-        for (FeatureSwitch sw : FeatureSwitch.values()) {
-            ids.add(sw.id);
-        }
-        suggestMatchingTypedPrefix(builder, ids);
-        return builder.buildFuture();
-    }
-
-    /**
-     * Rebuild every locator-bar connection so the
-     * {@code locator_bar_teammates_only} filter takes effect immediately —
-     * the same re-evaluation {@code ScoreboardMixin} applies to individual
-     * members on team changes, here applied everywhere because the rules
-     * themselves changed.
-     */
+    /** Re-evaluate every connection, because the filter rules themselves changed. */
     private static void rebuildWaypointConnections(MinecraftServer server) {
         WaypointSync.rebuildAll(server);
     }
 
     /**
-     * Clear the mod-overlaid glow on every non-player entity by broadcasting
-     * a no-glow entity-data packet. Required because a stationary mob never
-     * produces dirty entity data, so the stale 0x40 bit would otherwise stay
-     * on clients forever. Vanilla-glowing entities are skipped (the mod never
-     * touched those). Packets go only to players whose chunk-tracking view
-     * covers the entity's chunk — a <em>superset</em> of the exact tracking
-     * set (it ignores {@code entityTrackingRange}), so a few non-tracking
-     * players may receive a redundant clear packet; over-sending is safe
-     * (under-sending would leave stale glow). One-shot at command frequency —
-     * the chunk → tracking-players map keeps per-entity work at a single hash
-     * lookup (DEVELOPMENT.md §9.3).
+     * Clear mod-overlaid glow on every non-player entity by broadcasting a
+     * no-glow packet: a stationary mob produces no dirty data, so the stale bit
+     * would otherwise stay on clients. Vanilla-glowing entities are skipped.
+     *
+     * <p>Recipients are the entity's chunk-tracking viewers, a superset of the
+     * exact tracking set — over-sending is safe, under-sending is not.
      */
     private static void clearNonPlayerGlow(MinecraftServer server) {
         for (ServerLevel level : server.getAllLevels()) {
-            // Build a chunk → tracking-players map once instead of calling
-            // ChunkMap.getPlayers (O(online players) per call) for every entity.
+            // One chunk → viewers map beats ChunkMap.getPlayers per entity.
             Map<ChunkPos, List<ServerPlayer>> chunkViewers = new HashMap<>();
             for (ServerPlayer player : level.players()) {
                 player.getChunkTrackingView().forEach(chunk -> {
@@ -552,15 +584,12 @@ public final class GlowCommand {
                 if (entity instanceof Player) {
                     continue;
                 }
-                // Vanilla glow (effect for living, glow-tag bit for the rest)
-                // must be left alone — otherwise the clear packet would
-                // wrongly extinguish it.
                 boolean vanillaGlow = entity instanceof LivingEntity living
                         ? living.isCurrentlyGlowing()
                         : (entity.getEntityData().get(EntityAccessor.getSharedFlagsId())
                                 & GlowConstants.FLAG_GLOWING) != 0;
                 if (vanillaGlow) {
-                    continue; // Vanilla glow — the mod never overlaid these.
+                    continue;
                 }
                 PlayerTeam team = entity.getTeam();
                 if (team == null
@@ -576,8 +605,6 @@ public final class GlowCommand {
                         new SynchedEntityData.DataValue<>(
                                 EntityAccessor.getSharedFlagsId().id(),
                                 EntityDataSerializers.BYTE,
-                                // GLOW_CLEAR_MASK clears the glow bit, keeping
-                                // every other shared flag intact.
                                 (byte) (flags & GlowConstants.GLOW_CLEAR_MASK)));
                 ClientboundSetEntityDataPacket packet =
                         new ClientboundSetEntityDataPacket(entity.getId(), items);

@@ -10,8 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Minimum Fabric Loader is now **0.20.1** (was 0.19.3).
 
+### Added
+
+- Support for **Minecraft 26.4**, built from the same codebase. The 26.4 build follows the 26.4 pre-release series and migrates `/teamglow` to the command system overhauled in 26.4: argument types and suggestion providers must now be serializable, and a raw Brigadier type aborts `Commands.createVanilla` — which made every world load (dedicated server startup and singleplayer world creation alike) fail with `UnsupportedOperationException: Invalid argument type: string()`.
+
 ### Changed
 
+- The 26.4 target is the first one that needs Stonecutter version gates: `GlowCommand` uses `StringArgument`/`BooleanArgument`/serializable suggestion providers on 26.4 and plain Brigadier types on 26.1–26.3.
 - The Java package and Maven group moved from `com.glow.teammates` to `me.znianxgang.glow`. Server owners are unaffected; only third-party builds that reference the old package name need updating.
 - The 26.1 build now targets **Minecraft 26.1.2** (was 26.1). It still runs on the whole 26.1 series, so only the jar name changes (`+26.1` → `+26.1.2`).
 - Development builds now use a **`-SNAPSHOT`** suffix instead of `-dev`.

@@ -12,11 +12,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import java.util.Optional;
 
 /**
- * Filters the locator bar (asymmetric, receiver-driven): a viewer in a
- * glow-enabled team sees only their own teammates; everyone else (teamless or
- * non-glow teams) sees everyone. Returning {@link Optional#empty()} makes
- * {@code ServerWaypointManager.createConnection} tear the connection down.
- * Harmless on the client — the method is never called there.
+ * Locator-bar filter, evaluated per receiver: a viewer in a glow-enabled team
+ * sees only that team. Returning {@code Optional.empty()} makes vanilla tear
+ * the connection down. Never called on the client.
  */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {
@@ -27,20 +25,18 @@ public abstract class LivingEntityMixin {
 
         GlowConfigManager config = GlowConfigManager.getInstance();
         if (!config.isEnabled() || !config.isLocatorBarTeammatesOnly()) {
-            return original; // Mod off or feature off — vanilla behavior.
+            return original;
         }
 
-        // A viewer outside glow-enabled teams (teamless or non-glow) sees
-        // everyone — vanilla behavior.
+        // Viewers outside glow-enabled teams (teamless or non-glow) see
+        // everyone, like vanilla.
         PlayerTeam receiverTeam = receiver.getTeam();
         if (receiverTeam == null || !config.isTeamEnabled(receiverTeam.getName())) {
             return original;
         }
 
-        // A viewer in a glow-enabled team sees ONLY its own teammates: every
-        // other entity is hidden. Since receiverTeam is glow-enabled,
-        // equals() implies myTeam is the same glow-enabled team — no further
-        // check needed.
+        // receiverTeam is glow-enabled, so equality already implies myTeam is
+        // the same glow-enabled team — no second check needed.
         LivingEntity self = (LivingEntity) (Object) this;
         PlayerTeam myTeam = self.getTeam();
         if (!receiverTeam.equals(myTeam)) {
