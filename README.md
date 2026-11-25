@@ -19,10 +19,10 @@ Members of an enabled team see their teammates outlined in a bright glow, from a
 
 ## 📦 Requirements
 
-| | Minecraft 26.1 | Minecraft 26.2 | Minecraft 26.3 |
+| | Minecraft 26.1.x | Minecraft 26.2 | Minecraft 26.3 |
 |---|---|---|---|
-| Fabric Loader | >= 0.19.3 | >= 0.19.3 | >= 0.19.3 |
-| Fabric API | >= 0.155.3+26.1.2 | >= 0.157.0+26.2 | >= 0.160.5+26.3 |
+| Fabric Loader | ≥ 0.20.1 | ≥ 0.20.1 | ≥ 0.20.1 |
+| Fabric API | ≥ 0.155.3+26.1.2 | ≥ 0.157.0+26.2 | ≥ 0.160.5+26.3 |
 
 Install like any Fabric mod: drop the jar into the server's `mods/` folder. **Server-side only** — players with vanilla clients can connect without installing anything. Command feedback is translated server-side (English & Simplified Chinese).
 
@@ -92,13 +92,13 @@ Stored per world at `<world>/glow-my-teammates.json` (schema `[1, 1]`):
 Uses [Stonecutter](https://stonecutter.kikugie.dev/) to build all supported versions from one codebase.
 
 ```bash
-# Dev build (default) — jar version carries a "-dev" suffix
+# Dev build (default) — jar version carries a "-SNAPSHOT" suffix
 ./gradlew build
 # Release build — clean version, no suffix
 ./gradlew build -Prelease
 ```
 
-Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.2.1-dev+26.3.jar` or release `glow-my-teammates-1.2.1+26.3.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
+Output: `versions/<mc>/build/libs/glow-my-teammates-<version>+<mc>.jar`, e.g. dev `glow-my-teammates-1.2.1-SNAPSHOT+26.3.jar` or release `glow-my-teammates-1.2.1+26.3.jar`. The Server-Translations API is bundled — a single jar is all you need to install.
 
 ## 📋 Changelog
 

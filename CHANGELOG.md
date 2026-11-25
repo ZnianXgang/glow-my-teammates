@@ -6,9 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Minimum Fabric Loader is now **0.20.1** (was 0.19.3).
+
 ### Changed
 
-- The Java package moved from `com.glow.teammates` to `me.znianxgang.glow`, and the Maven group with it. Server owners see no difference — commands, permission nodes, config layout and the `glow-my-teammates.json` file are all unchanged — but a third-party Mixin config or plugin build that referenced the old package by name needs updating.
+- The Java package and Maven group moved from `com.glow.teammates` to `me.znianxgang.glow`. Server owners are unaffected; only third-party builds that reference the old package name need updating.
+- The 26.1 build now targets **Minecraft 26.1.2** (was 26.1). It still runs on the whole 26.1 series, so only the jar name changes (`+26.1` → `+26.1.2`).
+- Development builds now use a **`-SNAPSHOT`** suffix instead of `-dev`.
+- The `minecraft` dependency in `fabric.mod.json` now comes from a per-version `minecraft_version_depends` property.
+- Build toolchain updated to Gradle **9.9.1**, Fabric Loom **1.19-SNAPSHOT** and Stonecutter **0.10**.
 
 ## [1.2.1] - 2026-09-16
 

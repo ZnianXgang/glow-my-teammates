@@ -1,6 +1,6 @@
 # Glow My Teammates — Development Guide
 
-Server-side Fabric mod for Minecraft 26.1/26.2/26.3 (Mojang mappings). It never creates or manages teams — it watches the vanilla `/team` system and customizes the glow bit (`Entity.DATA_SHARED_FLAGS_ID`, bit `0x40`) that the server sends to each client.
+Server-side Fabric mod for Minecraft 26.1.x/26.2/26.3 (Mojang mappings). It never creates or manages teams — it watches the vanilla `/team` system and customizes the glow bit (`Entity.DATA_SHARED_FLAGS_ID`, bit `0x40`) that the server sends to each client.
 
 ## 1. Mental model
 
@@ -103,7 +103,7 @@ Connection re-evaluation (`WaypointSync`, all methods server-thread only):
 
 Both paths iterate a copy of `level.getWaypointManager().transmitters()`, **not** `level.players()`. A non-player transmitter's connections are never rebuilt by vanilla — `updateTeamWaypoints` and `updatePlayerWaypoint` resolve members through `PlayerList.getPlayerByName`, which returns `null` for an entity UUID — so they would keep the old filter rules until a connection happened to break, which a stationary entity and an AFK viewer may never cause.
 
-The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(transmitter)` — the same call vanilla's `updateTeamWaypoints` makes. No Stonecutter gates: the interface is identical in 26.1/26.2/26.3.
+The rebuild call is `ServerLevel.getWaypointManager().remakeConnections(transmitter)` — the same call vanilla's `updateTeamWaypoints` makes. No Stonecutter gates: the interface is identical in 26.1.x/26.2/26.3.
 
 ## 6. Commands & permissions (`GlowCommand`)
 
@@ -129,11 +129,11 @@ The command tree and its permission nodes (with fallbacks) are listed in README'
 **26.1+ background**: Minecraft 26.1 (the first 2026-renamed release) removed obfuscation and raised the minimum Java to 25. With obfuscation gone, **Yarn is unavailable from 26.1 on** — 26.1+ mods use **Mojmap** (official names ship in the jar, so `build.gradle` has no `mappings` line).
 
 - **VCS version is 26.3** — the canonical source in `src/`. Always commit from it.
-- Per-version deps live in `versions/<mc>/gradle.properties`, except `loader_version` which is global (root file). Inside `processResources`, a bare `property(...)` resolves against the **task**, so per-version values must be read via `project.property(...)`. Server-translations-api differs per MC and is bundled with `implementation include(...)`.
-- The `minecraft` entry of `fabric.mod.json` is the one exception: it is expanded from **`sc.current.version`** (the version directory name, e.g. `26.3`), not from `minecraft_version`. The template appends a trailing `-`, producing a series-wide predicate (`~26.3-`) that matches every pre-release and the final release of that series. Fabric Loader matches dependencies against its *normalized* game version, which differs from the raw version id, so pinning a concrete pre-release id would need its normalized spelling. The loom coordinate (`minecraft "com.mojang:minecraft:..."`) still uses the exact `minecraft_version`. **Do not swap the two.**
+- Per-version deps (`minecraft_version`, `minecraft_version_depends`, `fabric_api_version`, `server_translations_version`) live in `versions/<mc>/gradle.properties`, except `loader_version` which is global (root file). Inside `processResources`, a bare `property(...)` resolves against the **task**, so per-version values must be read via `project.property(...)`. Server-translations-api differs per MC and is bundled with `implementation include(...)`.
+- The `minecraft` entry of `fabric.mod.json` is expanded from the per-version **`minecraft_version_depends`** property, not from `minecraft_version` or `sc.current.version`. Its value is the complete predicate body **including** the trailing `-` (`26.3-` → `~26.3-`), so the template must not append anything — the predicate matches every pre-release and the final release of that series. Keeping it separate from `minecraft_version` is what lets a version directory target a concrete hotfix (`26.1.2`) while still declaring the whole series (`26.1-`). Fabric Loader matches dependencies against its *normalized* game version, which differs from the raw version id, so pinning a concrete pre-release id would need its normalized spelling. The loom coordinate (`minecraft "com.mojang:minecraft:..."`) and the `+<mc>` jar/version suffix still use the exact `minecraft_version` / `sc.current.version` (e.g. `+26.1.2`). **Do not replace `minecraft_version_depends` with either of them.**
 - Version-gated code uses `//? if 26.3 { ... } //?} else { ... }`. Currently **no** source file needs gates.
-- `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
-- A bare `./gradlew build` is a **dev build** — the version gets a `-dev` suffix (`1.2.1-dev+26.3`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.2.1+26.3`). Only distribute `-Prelease` jars.
+- `./gradlew build` (all versions); `./gradlew setActiveVersion -Pversion=26.1.2` (IDE); `./gradlew "Reset active project"` (restore VCS source — **run before every commit**).
+- A bare `./gradlew build` is a **dev build** — the version gets a `-SNAPSHOT` suffix (`1.2.1-SNAPSHOT+26.3`), so the jar and its `fabric.mod.json` version can never be mistaken for a release. Pass `-Prelease` for the clean release version (`1.2.1+26.3`). Only distribute `-Prelease` jars.
 - Work directly on `main`; conventional commits (`feat:`/`fix:`/`refactor:`/`docs:`/`chore:`), single concern per commit. Before committing: Reset active project, then verify `./gradlew build` passes.
 - Version bumps live in root `gradle.properties` (`mod_version`); jar names and `fabric.mod.json` follow automatically. Keep README's config example and jar-name lines in sync with the version.
 
